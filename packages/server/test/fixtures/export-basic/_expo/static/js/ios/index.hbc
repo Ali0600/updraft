@@ -1,0 +1,3 @@
+// Stand-in for a Metro/Hermes bundle. Its bytes are hashed by the tests, so
+// the content only has to be stable, not real.
+globalThis.__OTA_FIXTURE__ = { name: 'export-basic', platform: 'ios' };

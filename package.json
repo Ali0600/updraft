@@ -16,6 +16,7 @@
     "lint:fix": "biome check --write .",
     "test": "vitest run",
     "test:watch": "vitest",
+    "test:bite": "node scripts/verify-tests-bite.mjs",
     "dev": "pnpm --filter @ota/server dev"
   },
   "devDependencies": {

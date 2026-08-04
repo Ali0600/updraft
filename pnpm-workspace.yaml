@@ -4,7 +4,13 @@ packages:
 # example-app/ is deliberately NOT a workspace package: Metro resolves poorly
 # through pnpm's symlinked node_modules, so it keeps its own lockfile.
 
-# Postinstall scripts are blocked by default; these two need to compile.
+# Postinstall scripts are blocked by default.
+#
+# better-sqlite3 has no install script of its own, but package managers
+# auto-run `node-gyp rebuild` for any package carrying a binding.gyp. That
+# build is pure waste here: the package ships prebuilt binaries for every
+# platform (including musl) and the loader prefers them over build/Release.
+# Leaving it enabled also forces a C++ toolchain into the Docker build.
 allowBuilds:
-  better-sqlite3: true
+  better-sqlite3: false
   esbuild: true

@@ -9,8 +9,6 @@ options are kept because the reasoning behind them is worth revisiting.
   non-React-Native apps update remote config and assets. (See D1.)
 - **Postgres metadata store** — needed the day this has to run more than one
   instance. Drizzle already targets it. (See D5.)
-- **Alpine base image** — smaller image, blocked today by better-sqlite3
-  having no musl prebuilds. (See D6.)
 - **Bundling runtime dependencies into a single artifact** — smaller, simpler
   runtime image, blocked by pino/fastify worker-thread resolution. (See D7.)
 
@@ -107,15 +105,30 @@ repository layer.
 
 **Fork:** Alpine (musl) vs Debian slim (glibc).
 
-**Chosen:** `node:22-bookworm-slim`. better-sqlite3 publishes glibc prebuilds
-only; Alpine would force a from-source native compile in every build.
+**Chosen:** `node:22-alpine` — 316 MB against 438 MB for Debian, with nothing
+compiled at build time.
 
-- *Alpine:* **deferred — worth trying.** Meaningfully smaller image. Becomes
-  viable if better-sqlite3 ships musl prebuilds, or if the metadata store moves
-  to a pure-JS or network-attached database.
+This entry originally chose `node:22-bookworm-slim` on the premise that
+better-sqlite3 publishes glibc prebuilds only. **That premise was wrong**, and
+running the container is what disproved it. The package ships prebuilds for
+eight targets including `linuxmusl-arm64` and `linuxmusl-x64`. Two things fell
+out of checking:
 
-**Revisit hook:** `docker/Dockerfile` — only the `FROM` lines and the
-build-toolchain `apt-get` step would change.
+- Bookworm is in fact the *broken* option: the `linux-arm64` prebuild requires
+  glibc 2.38 and Bookworm ships 2.36, so that image builds cleanly and then
+  dies on its first `require()`. Debian would have to be Trixie (glibc 2.41).
+- The C++ toolchain the Debian stage installed was never needed. better-sqlite3
+  has no install script; package managers auto-run `node-gyp rebuild` for any
+  package with a `binding.gyp`, and the loader then ignores the result in
+  favour of the shipped prebuild. `allowBuilds: better-sqlite3: false` removes
+  the build entirely.
+
+- *Debian slim:* **rejected — larger, and it compiles for no reason.** Would
+  become necessary only if a dependency appears with no musl prebuild; Trixie,
+  not Bookworm, is the version to reach for.
+
+**Revisit hook:** `docker/Dockerfile` `FROM` lines, plus `allowBuilds` in
+`pnpm-workspace.yaml`.
 
 ## D7 — Shipping runtime dependencies (2026-08-05)
 

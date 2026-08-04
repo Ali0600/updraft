@@ -20,7 +20,7 @@ Early development. See `docs/` for design notes.
 | Milestone | Scope | State |
 | --- | --- | --- |
 | M0 | Scaffold, Docker, CI | done |
-| M1 | Protocol MVP (manifest + assets + publish API) | in progress |
+| M1 | Protocol MVP (manifest + assets + publish API) | done |
 | M2 | Code signing, channels, rollback | planned |
 | M3 | CLI + CI/CD publishing | planned |
 | M4 | S3 storage + observability | planned |
@@ -51,6 +51,31 @@ docker compose -f docker/docker-compose.yml up --build
 curl -fsS http://localhost:3000/healthz
 ```
 
+## API
+
+**Protocol endpoint** (what `expo-updates` on the device calls):
+
+```bash
+curl -i http://localhost:3000/api/manifest/demo -H 'expo-protocol-version: 1' -H 'expo-platform: ios' -H 'expo-runtime-version: 1.0.0' -H 'accept: multipart/mixed'
+```
+
+Returns a `multipart/mixed` manifest, a rollback directive, or `204` when there
+is nothing to apply. Assets are served from `/assets/:sha256` with immutable
+caching. Details and the full resolution order are in
+[docs/protocol-notes.md](docs/protocol-notes.md).
+
+**Admin API** (bearer token required on every route):
+
+| Route | Purpose |
+| --- | --- |
+| `POST /api/admin/apps` | create an app plus its default channels |
+| `POST /api/admin/assets/check` | ask which blobs still need uploading |
+| `PUT /api/admin/assets/:sha256` | upload a blob (re-hashed server-side) |
+| `POST /api/admin/updates` | publish an update to a channel |
+
+Uploads are content-addressed and deduplicated, so republishing only transfers
+what actually changed.
+
 ## Architecture
 
 ```
@@ -79,7 +104,18 @@ pnpm test        # vitest across all packages
 pnpm typecheck   # tsc --noEmit per package
 pnpm lint        # biome
 pnpm build       # tsup + tsc declarations
+pnpm test:bite   # mutation check: breaks each guard, fails if tests stay green
 ```
+
+```bash
+./scripts/e2e-docker.sh
+```
+
+`test:bite` breaks one guard at a time and asserts the suite notices — a test
+that has never failed proves nothing. `e2e-docker.sh` publishes an update
+through the real container and verifies every asset over HTTP, covering what
+in-process tests structurally cannot: the built bundle, migrations running from
+`dist/`, and the native SQLite module actually loading.
 
 ## Experience Gained
 
@@ -95,6 +131,12 @@ pnpm build       # tsup + tsc declarations
   workflow permissions.
 - Applied fail-closed configuration validation and bearer-token authentication
   from the first endpoint, with path-traversal-safe asset addressing.
+- Built a mutation-testing harness that verifies each security and protocol
+  guard is genuinely covered, checksumming sources across every break/restore
+  cycle and validating the test count to detect runs that silently skip files.
+- Diagnosed a container-only runtime failure caused by a native module's
+  prebuilt binary requiring a newer glibc than the base image provided,
+  reducing image size 28% by eliminating an unnecessary source build.
 
 ## Prior art
 

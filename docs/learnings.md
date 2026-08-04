@@ -81,6 +81,50 @@ absent" idiom into a compile error.
 spreading them in, never by assigning `undefined`. A confusing overload error
 on a call with an optional property is often this flag.
 
+## A native prebuild pins a *runtime* glibc version your build never checks
+
+The container built cleanly on `node:22-bookworm-slim` and then died on its
+first `require()`: better-sqlite3's `linux-arm64.node` needs glibc 2.38 and
+Bookworm ships 2.36. The build had even compiled the module from source — but
+the loader prefers `prebuilds/` over `build/Release/`, so the working binary
+was ignored in favour of the incompatible one.
+
+**Why it came up:** every in-process test passed, the image built, and the
+failure appeared only when the container was actually run.
+
+**Takeaway:** a native module's prebuilt binary carries its own libc floor,
+independent of your base image's Node version. "It built" says nothing about
+whether it loads. Run the container as part of verifying it.
+
+## `binding.gyp` alone makes package managers compile things nobody uses
+
+better-sqlite3 declares no install script, yet pnpm ran `node-gyp rebuild` on
+it — package managers auto-run a gyp build for any package carrying a
+`binding.gyp`. That forced a C++ toolchain into the Docker image to produce a
+binary the loader then ignored. Disabling the build (`allowBuilds: false`) cut
+the toolchain, sped up installs, and changed nothing at runtime.
+
+**Why it came up:** the pointless compile was the only reason the image needed
+`python3`, `make`, and `g++` at all.
+
+**Takeaway:** when a dependency triggers a native build, check whether it ships
+prebuilds for your targets first. An unnecessary source build costs image size,
+build time, and a much larger attack surface.
+
+## A premise you never tested will quietly shape the architecture
+
+"better-sqlite3 publishes glibc prebuilds only" was written into a design
+decision, and it chose the base image, the toolchain, and the image size. The
+package actually ships eight prebuilds including two musl ones. Testing the
+claim took two minutes and made the image 28% smaller.
+
+**Why it came up:** the assumption was plausible, load-bearing, and never
+stated as something to verify.
+
+**Takeaway:** when a decision record says "X is impossible because Y", Y is a
+claim with an expiry date. Test the ones that are cheap to test, especially the
+ones doing the most architectural work.
+
 ## A package that only typechecks via its test files' imports is under-declared
 
 `packages/core` used `node:crypto` and `Buffer` without depending on

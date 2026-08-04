@@ -2,9 +2,12 @@
 #
 # Build from the repo root:  docker build -f docker/Dockerfile .
 #
-# Debian rather than Alpine on purpose: better-sqlite3 publishes glibc
-# prebuilds only, so musl would force a from-source native compile.
-FROM node:22-bookworm-slim AS base
+# Alpine works because better-sqlite3 ships musl prebuilds alongside the glibc
+# ones, so nothing is compiled here at all (see allowBuilds in
+# pnpm-workspace.yaml). Worth knowing if this ever moves back to Debian: the
+# linux-arm64 prebuild needs glibc 2.38, which Bookworm (2.36) does not have —
+# that image builds cleanly and then dies on its first require().
+FROM node:22-alpine AS base
 ENV PNPM_HOME=/pnpm \
     PATH=/pnpm:$PATH \
     CI=true
@@ -14,12 +17,6 @@ WORKDIR /app
 # --- dependencies -----------------------------------------------------------
 # Manifests only, so the install layer caches until a package.json changes.
 FROM base AS deps
-# better-sqlite3 falls back to a node-gyp source build when no prebuild matches
-# the platform, so the toolchain has to exist here. It stays out of the runtime
-# stage, which only receives the compiled .node file.
-RUN apt-get update && apt-get install -y --no-install-recommends \
-      python3 make g++ \
-    && rm -rf /var/lib/apt/lists/*
 COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
 COPY packages/core/package.json packages/core/
 COPY packages/server/package.json packages/server/

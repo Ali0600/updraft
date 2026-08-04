@@ -1,0 +1,1 @@
+stand-in asset bytes for the export-basic fixture
