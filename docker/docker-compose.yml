@@ -1,0 +1,25 @@
+# Run from the repo root:  docker compose -f docker/docker-compose.yml up --build
+services:
+  server:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile
+    ports:
+      - '${PORT:-3000}:3000'
+    environment:
+      NODE_ENV: production
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+      # Must be reachable from the device. A physical phone needs this to be
+      # the host's LAN address over HTTPS, not localhost.
+      PUBLIC_URL: ${PUBLIC_URL:-http://localhost:3000}
+      # No default: the server refuses to start without it.
+      PUBLISH_TOKEN: ${PUBLISH_TOKEN:?set PUBLISH_TOKEN in .env (openssl rand -hex 32)}
+      CODE_SIGNING_KEY_ID: ${CODE_SIGNING_KEY_ID:-main}
+    volumes:
+      - ota-data:/data
+      # M2 adds a read-only `../certs:/keys` mount here: signing keys stay on
+      # the host and are never baked into the image.
+    restart: unless-stopped
+
+volumes:
+  ota-data:

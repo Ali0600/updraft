@@ -1,0 +1,26 @@
+{
+  "name": "@ota/cli",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Publishing CLI for the update server (name TBD before first npm release)",
+  "license": "MIT",
+  "bin": {
+    "ota": "./dist/index.js"
+  },
+  "main": "./dist/index.js",
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsup",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@ota/core": "workspace:*",
+    "commander": "^15.0.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.15.3"
+  }
+}

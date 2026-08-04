@@ -1,0 +1,35 @@
+# dependencies
+node_modules/
+
+# build output
+dist/
+*.tsbuildinfo
+
+# test / coverage
+coverage/
+.vitest/
+
+# --- secrets & local state: never commit ---
+.env
+.env.*
+!.env.example
+certs/
+keys/
+*.pem
+*.key
+*.p12
+
+# local data volumes (sqlite db + blob storage)
+data/
+*.sqlite
+*.sqlite-journal
+*.sqlite-wal
+*.sqlite-shm
+*.db
+
+# os / editor
+.DS_Store
+*.log
+.idea/
+.vscode/*
+!.vscode/extensions.json

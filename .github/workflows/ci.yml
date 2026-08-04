@@ -1,0 +1,83 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+# Least privilege: CI only ever needs to read the tree.
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  check:
+    name: lint / typecheck / test (node ${{ matrix.node }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        # Lowest supported runtime and the dev runtime, so a floor bump that
+        # breaks Node 20 cannot pass on 22 alone.
+        node: ['20', '22']
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6.0.10
+
+      - name: Setup Node
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: ${{ matrix.node }}
+          cache: pnpm
+
+      - name: Install
+        run: pnpm install --frozen-lockfile
+
+      - name: Lint
+        run: pnpm lint
+
+      - name: Typecheck
+        run: pnpm typecheck
+
+      - name: Test
+        run: pnpm test
+
+      - name: Build
+        run: pnpm build
+
+  docker:
+    name: docker image builds and serves
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Build image
+        run: docker build -f docker/Dockerfile -t ota-os:ci .
+
+      # A build that never runs proves only that it compiles.
+      - name: Container answers /healthz
+        run: |
+          docker run -d --name ota-ci -p 3000:3000 \
+            -e PUBLIC_URL=http://localhost:3000 \
+            -e PUBLISH_TOKEN=ci-token-0123456789abcdef0123456789abcdef \
+            ota-os:ci
+          for i in $(seq 1 30); do
+            if curl -fsS http://localhost:3000/healthz; then exit 0; fi
+            sleep 1
+          done
+          echo "server never became healthy"; docker logs ota-ci; exit 1
+
+      - name: Container refuses to start without PUBLISH_TOKEN
+        run: |
+          if docker run --rm -e PUBLIC_URL=http://localhost:3000 ota-os:ci; then
+            echo "server booted without PUBLISH_TOKEN — fail-closed config is broken"
+            exit 1
+          fi

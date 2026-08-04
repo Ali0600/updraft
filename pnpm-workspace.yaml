@@ -1,0 +1,10 @@
+packages:
+  - 'packages/*'
+
+# example-app/ is deliberately NOT a workspace package: Metro resolves poorly
+# through pnpm's symlinked node_modules, so it keeps its own lockfile.
+
+# Postinstall scripts are blocked by default; these two need to compile.
+allowBuilds:
+  better-sqlite3: true
+  esbuild: true
