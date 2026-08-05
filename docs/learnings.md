@@ -126,6 +126,43 @@ invisible until someone reads a log.
 only path — no flag, no input, environment only. Assert it: a test greps the
 action definition for a token input and fails if one appears.
 
+## A client integration is only proven by the client
+
+The server was verified against the specification, Expo's reference server, two
+independent crypto libraries, and real Metro output — and still, running it
+against the actual `expo-updates` client was the only thing that could answer
+whether a `noUpdateAvailable` directive is accepted where the reference server
+sends one only in a narrower case. It was, but nothing short of the device
+could have established that.
+
+The device run also surfaced three request headers absent from the spec
+(`expo-updates-environment`, `expo-api-version`, `expo-json-error`) — harmless,
+but unknowable from documentation.
+
+**Why it came up:** every earlier layer of testing validated the server against
+a *description* of the client rather than the client.
+
+**Takeaway:** when implementing a protocol against a specific consumer, budget
+for one real integration run. Capture the actual traffic (a logging proxy in
+front of the server costs fifteen lines) — what the client sends is ground
+truth, and the gap between it and the spec is where the bugs live.
+
+## Prove a security check rejects, not just that it accepts
+
+Code signing worked on the device: the client demanded a signature, the server
+provided one, the update applied. That proves signatures are *produced*. It
+does not prove they are *checked* — an app that ignored signatures entirely
+would look identical. Pointing the server at a different key pair with the same
+`keyid` and confirming the device refused the update is what closed the gap.
+
+**Why it came up:** the happy path passing is the exact condition under which
+nobody looks closer.
+
+**Takeaway:** for any verification step — signatures, checksums, auth,
+certificate pinning — the passing case and the absent case are
+indistinguishable. Always run the negative: serve something that *should* be
+rejected and confirm it is.
+
 ## Where a spec is silent, the reference implementation is the real standard
 
 The Expo Updates spec defines `rollBackToEmbedded` but never says what to send

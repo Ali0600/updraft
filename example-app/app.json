@@ -18,7 +18,17 @@
     },
     "ios": {
       "supportsTablet": true,
-      "bundleIdentifier": "dev.updraft.exampleapp"
+      "bundleIdentifier": "dev.updraft.exampleapp",
+      "infoPlist": {
+        "NSAppTransportSecurity": {
+          "NSAllowsLocalNetworking": true,
+          "NSExceptionDomains": {
+            "localhost": {
+              "NSExceptionAllowsInsecureHTTPLoads": true
+            }
+          }
+        }
+      }
     },
     "android": {
       "package": "dev.updraft.exampleapp",

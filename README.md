@@ -15,7 +15,14 @@ your bucket, your CDN, your data.
 
 ## Status
 
-Early development. See `docs/` for design notes.
+Working end to end. Updates publish from the CLI, apply on a real device, and
+roll back — verified against `expo-updates` 57.0.12 on the iOS simulator, with
+code signing enforced. See [docs/protocol-notes.md](docs/protocol-notes.md)
+for what the real client confirmed and [docs/e2e-testing.md](docs/e2e-testing.md)
+for how to reproduce it.
+
+Not yet exercised: Android, physical devices (which need HTTPS), and
+S3-backed storage.
 
 | Milestone | Scope | State |
 | --- | --- | --- |
@@ -23,8 +30,8 @@ Early development. See `docs/` for design notes.
 | M1 | Protocol MVP (manifest + assets + publish API) | done |
 | M2 | Code signing, channels, rollback | done |
 | M3 | Publishing CLI + GitHub Action | done |
+| M5 | Verified against a real `expo-updates` client | done |
 | M4 | S3 storage + observability | planned |
-| M5 | End-to-end dogfooding on a real app | planned |
 
 ## Quickstart
 
@@ -248,6 +255,13 @@ publish uploads nothing. Requires `npm install` in `example-app/` first.
   credentials out of workflow logs by routing them through environment
   variables rather than action inputs, and validating every step locally
   against a live server.
+- Validated a protocol implementation against the real third-party client on
+  iOS, capturing live traffic through a logging proxy to confirm header
+  formats and signature placement that no specification or test suite could
+  settle.
+- Demonstrated that code signing genuinely rejects tampered releases by
+  serving an update signed with a mismatched key and confirming the device
+  refused it — testing the negative case, not only the happy path.
 
 ## Prior art
 

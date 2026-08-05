@@ -141,19 +141,90 @@ MD5 key on the same basis. Two different hashes are therefore in play per
 asset, doing different jobs: SHA-256 addresses and verifies the bytes, MD5
 identifies the logical asset.
 
-## Things to watch when the real client arrives (M5)
+## Verified against a real client
 
-Settled by reading the reference server:
+Run on 2026-08-05 against `expo-updates` 57.0.12 (Expo SDK 57, React Native
+0.86) in a Release build on the iOS simulator. Procedure in
+[e2e-testing.md](e2e-testing.md).
 
-- `expo-signature` goes on the **multipart part**, not the HTTP response.
-- Part names are `manifest` and `directive`.
-- Protocol 1 uses `noUpdateAvailable`; protocol 0 has no directives at all.
+Confirmed working end to end:
 
-Still unverified against a real device:
+- **An update is delivered and applied.** Publish → relaunch → the new bundle
+  runs. The client fetched the manifest, downloaded the launch asset and the
+  image asset, and rendered them.
+- **`noUpdateAvailable` is accepted for the "nothing ever published" case.**
+  This was the open question with the most risk attached, because the
+  reference server only sends the directive for "you are already current".
+  The client treats it as a no-op and runs its embedded bundle. It does not
+  require a 204 here.
+- **`rollBackToEmbedded` returns the client to its embedded bundle.**
+- **Republishing an earlier group brings that update back.**
+- **`runtimeVersion` gates correctly.** An update published to the *same
+  channel*, newer than what the client is running, is ignored when its
+  runtime version differs — verified with a 2.0.0 update against a 1.0.0 app.
+- **`metadata: {}` is accepted.** No required fields were found.
+- **Asset `fileExtension` as `.hbc`/`.png` is accepted**, and the launch asset
+  being served as `application/javascript` while actually being Hermes
+  bytecode causes no problem — matching the reference server's behaviour.
 
-- Whether the client requires a `fileExtension` on every asset.
-- Whether `metadata` needs specific fields, and whether `extra.expoClient` (the
-  public Expo config) is required by modules such as expo-font.
-- Whether the client tolerates a `noUpdateAvailable` directive where it might
-  expect a 204 for the "nothing ever published" case, as opposed to the
-  "you are already current" case the reference server uses it for.
+Still unverified:
+
+- Whether `extra.expoClient` is *required* by modules that read the public
+  config at runtime (expo-font and friends). It is sent when the publisher
+  writes `expoConfig.json`, and the example app works with and without it, but
+  the example app does not use such a module.
+- Android. Everything above is iOS; the protocol is platform-independent but
+  the client is not the same code.
+- A physical device, which additionally requires HTTPS (ATS) and a LAN-
+  reachable address rather than `localhost`.
+
+### What the client actually sends
+
+Captured from `expo-updates` 57.0.12 through a logging proxy:
+
+```
+user-agent: exampleapp/1 CFNetwork/3860.500.112 Darwin/25.5.0
+accept: multipart/mixed,application/expo+json,application/json
+expo-protocol-version: 1
+expo-platform: ios
+expo-runtime-version: 1.0.0
+expo-channel-name: staging
+expo-current-update-id: 680b5468-...
+expo-embedded-update-id: 680b5468-...
+expo-expect-signature: sig, keyid="main", alg="rsa-v1_5-sha256"
+expo-updates-environment: BARE
+expo-api-version: 1
+expo-json-error: true
+```
+
+Notes on the ones that matter:
+
+- `accept` lists all three types, so the multipart branch is what real clients
+  get. The `expo+json` path exists for compatibility, not for this client.
+- `expo-expect-signature` arrives in exactly the structured-field form the
+  spec describes, `keyid` and `alg` included.
+- `expo-current-update-id` equals `expo-embedded-update-id` while the client
+  runs its embedded bundle, which is what makes the rollback suppression check
+  work.
+- Three headers are not in the specification: `expo-updates-environment`
+  (`BARE` for a bare/prebuilt app), `expo-api-version`, and `expo-json-error`
+  (the client wants JSON error bodies, which this server already returns).
+  None require server action; they are recorded so nobody mistakes them for
+  something we should be handling.
+
+### Code signing, confirmed on device
+
+- The signature must be on the **multipart part**. Our responses carry no
+  `expo-signature` HTTP header at all, and the client is satisfied.
+- **The client genuinely verifies.** Serving an update signed by an unrelated
+  key — same `keyid`, valid signature, newer update — is refused: the app
+  stayed on its previous update. A signature check that has never rejected
+  anything proves nothing, so this was tested explicitly.
+
+### Timing behaviour worth knowing
+
+With `fallbackToCacheTimeout` (`EXUpdatesLaunchWaitMs`) set to 10000, both
+updates and rollbacks apply on the **first** relaunch: the client blocks at
+launch waiting for the fetch. With the default of 0 it downloads in the
+background and applies on the *next* launch, which makes the loop look broken
+if you only relaunch once.
