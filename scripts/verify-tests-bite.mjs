@@ -13,7 +13,7 @@
 // the pattern against the current source when it happens. Run this after
 // `pnpm lint:fix`, not before.
 
-import { execFileSync } from 'node:child_process';
+import { execFileSync, spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
@@ -301,26 +301,33 @@ function clearCaches() {
   }
 }
 
+// biome-ignore lint/suspicious/noControlCharactersInRegex: matching ANSI escapes requires ESC
+const ANSI = /\[[0-9;]*[A-Za-z]/g;
+const stripAnsi = (text) => text.replace(ANSI, '');
+
 function runTests() {
-  let stdout = '';
-  let exitCode = 0;
-  try {
-    stdout = execFileSync('npx', ['vitest', 'run'], {
-      cwd: ROOT,
-      encoding: 'utf8',
-      stdio: ['ignore', 'pipe', 'pipe'],
-      env: { ...process.env, CI: 'true' },
-    });
-  } catch (error) {
-    stdout = `${error.stdout ?? ''}${error.stderr ?? ''}`;
-    exitCode = error.status ?? 1;
-  }
+  // Both streams, always. Vitest puts its summary on stdout locally and on
+  // stderr under CI; reading only one made the harness report "baseline is not
+  // green" for a suite that had in fact passed. `pnpm exec` rather than `npx`
+  // so resolution is the workspace's, not whatever npx decides to fetch.
+  // The reporter is pinned and colour disabled so the summary line has one
+  // shape everywhere; ANSI is then stripped anyway, because a parser that
+  // depends on the terminal's mood is not a parser.
+  const result = spawnSync('pnpm', ['exec', 'vitest', 'run', '--reporter=default'], {
+    cwd: ROOT,
+    encoding: 'utf8',
+    env: { ...process.env, CI: 'true', NO_COLOR: '1', FORCE_COLOR: '0' },
+  });
+
+  const output = stripAnsi(`${result.stdout ?? ''}\n${result.stderr ?? ''}`);
+  const exitCode = result.status ?? 1;
 
   const line = /Tests\s+(?:(\d+) failed \| )?(\d+) passed(?: \| (\d+) skipped)?\s+\((\d+)\)/.exec(
-    stdout,
+    output,
   );
   if (!line) {
-    return { exitCode, failed: null, passed: null, total: null, raw: stdout.slice(-800) };
+    // Unparseable output is a harness failure, not a silent pass — show it.
+    return { exitCode, failed: null, passed: null, total: null, raw: output.slice(-1500) };
   }
   return {
     exitCode,
@@ -330,6 +337,17 @@ function runTests() {
   };
 }
 
+// @ota/core resolves through its package exports (dist), so it must exist
+// before any suite runs. The root `test` script does this, but this harness
+// calls vitest directly to avoid rebuilding core 40+ times — no sabotage
+// touches core, so building it once here is both correct and fast.
+console.log('=== building @ota/core ===');
+execFileSync('pnpm', ['--filter', '@ota/core', 'build'], {
+  cwd: ROOT,
+  stdio: 'inherit',
+  env: { ...process.env, CI: 'true' },
+});
+
 console.log('=== baseline ===');
 clearCaches();
 const baseline = runTests();
@@ -338,6 +356,8 @@ console.log(
 );
 if (baseline.exitCode !== 0 || baseline.failed !== 0) {
   console.error('baseline is not green; aborting');
+  // Without this, an unparseable run is indistinguishable from a failing one.
+  if (baseline.raw) console.error(`--- test output ---\n${baseline.raw}`);
   process.exit(1);
 }
 

@@ -1,0 +1,75 @@
+name: Publish image
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+
+# Least privilege: read the tree, write the package, nothing else.
+permissions:
+  contents: read
+  packages: write
+
+env:
+  IMAGE: ghcr.io/${{ github.repository }}
+
+jobs:
+  publish:
+    name: build and push to GHCR
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      # arm64 is emulated here. Nothing compiles during the build —
+      # better-sqlite3 ships prebuilds for both architectures — so the
+      # emulation cost is only the base-image layers.
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@96fe6ef7f33517b61c61be40b68a1882f3264fb8 # v4.2.0
+
+      - name: Set up Buildx
+        uses: docker/setup-buildx-action@bb05f3f5519dd87d3ba754cc423b652a5edd6d2c # v4.2.0
+
+      - name: Log in to GHCR
+        uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          # The workflow's own token; no secret to manage or rotate.
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Derive tags
+        id: meta
+        uses: docker/metadata-action@dc802804100637a589fabce1cb79ff13a1411302 # v6.2.0
+        with:
+          images: ${{ env.IMAGE }}
+          tags: |
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+            type=raw,value=latest,enable={{is_default_branch}}
+
+      - name: Build and push
+        uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a # v7.3.0
+        with:
+          context: .
+          file: docker/Dockerfile
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      # A pushed image that has never been run is an unverified artifact.
+      - name: The published image actually serves
+        run: |
+          TAG=$(echo '${{ steps.meta.outputs.tags }}' | head -1)
+          docker run -d --name verify -p 3000:3000 \
+            -e PUBLIC_URL=http://localhost:3000 \
+            -e PUBLISH_TOKEN=ci-verify-0123456789abcdef0123456789abcd \
+            "$TAG"
+          for _ in $(seq 1 30); do
+            curl -fsS http://localhost:3000/healthz && exit 0
+            sleep 1
+          done
+          echo "published image never became healthy"; docker logs verify; exit 1

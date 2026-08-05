@@ -37,18 +37,23 @@ echo "==> building image"
 docker build -f "${ROOT}/docker/Dockerfile" -t "${IMAGE}" "${ROOT}" >/dev/null
 
 echo "==> generating code signing keys"
-(cd "${ROOT}" && pnpm --filter @ota/cli build >/dev/null 2>&1)
+(cd "${ROOT}" && pnpm --filter '@ota/cli...' build >/dev/null 2>&1)
 node "${ROOT}/packages/cli/dist/index.js" keys generate --output "${CERTS}" >/dev/null
 [ -f "${CERTS}/private-key.pem" ] || fail "keys generate produced no private key"
 pass "code signing keys generated"
 
 echo "==> starting container on :${PORT}"
+# The key goes in as base64 rather than a bind mount. The container runs as
+# uid 1000 and `keys generate` writes the key 0600 owned by the invoking user:
+# Docker Desktop on macOS maps that so it is readable, Linux does not, and the
+# server correctly refuses to start. Base64 exercises the same signer without
+# depending on host uid mapping. See docs/deployment notes in the README for
+# the bind-mount variant.
 docker run -d --name "${CONTAINER}" -p "${PORT}:3000" \
   -e "PUBLIC_URL=${BASE}" \
   -e "PUBLISH_TOKEN=${TOKEN}" \
-  -e "CODE_SIGNING_PRIVATE_KEY_PATH=/keys/private-key.pem" \
+  -e "CODE_SIGNING_PRIVATE_KEY_BASE64=$(base64 < "${CERTS}/private-key.pem" | tr -d '\n')" \
   -e "CODE_SIGNING_KEY_ID=main" \
-  -v "${CERTS}:/keys:ro" \
   "${IMAGE}" >/dev/null
 
 for _ in $(seq 1 30); do
@@ -64,7 +69,7 @@ code=$(curl -s -o /dev/null -w '%{http_code}' "${BASE}/api/admin/apps")
 pass "unauthenticated admin request rejected"
 
 echo "==> building the CLI"
-(cd "${ROOT}" && pnpm --filter @ota/cli build >/dev/null 2>&1) || fail "cli build failed"
+(cd "${ROOT}" && pnpm --filter '@ota/cli...' build >/dev/null 2>&1) || fail "cli build failed"
 CLI="${ROOT}/packages/cli/dist/index.js"
 export UPDRAFT_PUBLISH_TOKEN="${TOKEN}"
 
