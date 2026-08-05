@@ -1,5 +1,7 @@
 # Updraft
 
+[![CI](https://github.com/Ali0600/updraft/actions/workflows/ci.yml/badge.svg)](https://github.com/Ali0600/updraft/actions/workflows/ci.yml)
+
 A self-hosted, open-source update server for React Native / Expo apps — an
 alternative to the hosted EAS Update service, implementing the published
 [Expo Updates protocol v1](https://docs.expo.dev/technical-specs/expo-updates-1/).
@@ -36,6 +38,10 @@ S3-backed storage.
 ## Quickstart
 
 Requires Node >= 20, pnpm, and Docker.
+
+```bash
+git clone https://github.com/Ali0600/updraft.git && cd updraft
+```
 
 ```bash
 pnpm install
