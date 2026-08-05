@@ -126,6 +126,66 @@ invisible until someone reads a log.
 only path — no flag, no input, environment only. Assert it: a test greps the
 action definition for a token input and fails if one appears.
 
+## Leftover build output makes a broken build look fine
+
+`packages/cli/dist/index.js` imports `@ota/core/dist` at runtime, and nothing
+built core before building the CLI. Locally `core/dist` always existed from
+some earlier build, so it worked every single time. The first CI run — the
+first clean checkout in the project's life — failed three jobs on it.
+
+**Why it came up:** a developer machine accumulates artifacts. The dependency
+was satisfied by history rather than by the build.
+
+**Takeaway:** `rm -rf` every build output and run the whole thing before
+trusting a build graph. In a monorepo, build a package's dependencies
+explicitly (`pnpm --filter 'pkg...' build`) rather than relying on them
+happening to be there.
+
+## An `engines` field is a claim, and claims need testing
+
+`package.json` said `node >= 20` and the README repeated it. pnpm 11 imports
+`node:sqlite` and requires >= 22.13, so `pnpm install` could not run on Node 20
+at all. The floor had never been true; it had also never been tested, because
+the CI matrix that would have caught it had never run.
+
+**Why it came up:** the number was written once, plausibly, and then believed.
+
+**Takeaway:** a supported-version claim is only as good as the CI job that
+exercises it. Test the floor you advertise, and when the toolchain moves the
+floor, move the claim — don't work around it to preserve a number nobody
+verified.
+
+## A parser that depends on terminal formatting is not a parser
+
+The mutation harness matched vitest's `Tests 158 passed (158)` summary. In CI
+that line arrives wrapped in ANSI colour codes, so the regex found nothing, and
+the harness reported "baseline is not green" for a suite that had just passed
+158/158. It also read only stdout on success while reading both streams on
+failure — an asymmetry that hid where the output had gone.
+
+**Why it came up:** the output looked identical to a human in both places.
+
+**Takeaway:** when parsing another tool's output, strip ANSI, pin the reporter,
+disable colour, and read both streams — the shape should not depend on the
+environment. And always print the raw output when parsing fails: an
+unparseable run and a failing run are otherwise indistinguishable, which turns
+one diagnosis into several round trips.
+
+## Bind-mounted secrets collide with container users, and only on Linux
+
+`keys generate` writes the signing key mode 0600 owned by whoever ran it. The
+container runs as uid 1000. Docker Desktop on macOS maps ownership so the
+mount just works; on Linux the container gets EACCES and the server refuses to
+start. Every local run passed; CI failed immediately.
+
+**Why it came up:** the file permission is correct, the container user is
+correct, and the combination is still broken on the platform you deploy to.
+
+**Takeaway:** a bind-mounted secret must be readable by the container's uid,
+and macOS will not tell you when it isn't. Prefer passing secrets through the
+environment where ownership is awkward, keep the restrictive mode, and document
+the uid requirement for the mount path.
+
 ## A client integration is only proven by the client
 
 The server was verified against the specification, Expo's reference server, two

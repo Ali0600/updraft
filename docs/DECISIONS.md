@@ -17,6 +17,19 @@ the first two can run.
 
 **Chosen:** author the Action, defer npm and GHCR publishing.
 
+**Update (2026-08-05):** the repo now exists at
+[github.com/Ali0600/updraft](https://github.com/Ali0600/updraft), so **GHCR
+publishing is implemented** (`.github/workflows/docker.yml`, multi-arch on a
+`v*` tag, authenticating with the workflow's own `GITHUB_TOKEN` — no secret to
+manage). npm remains deferred: it needs an npm account and a final package
+name, neither of which the remote unblocked.
+
+Publishing also validated the CI that had never run. It failed four of five
+jobs on the first clean checkout and exposed three real defects — an unbuilt
+workspace dependency, a Node floor that was never true, and a code-signing key
+unreadable by the container user on Linux. Authoring workflows is cheap;
+*running* them is what makes them worth anything.
+
 The Action earns its place because every `run:` block can be executed here
 against a real server — `scripts/verify-action-steps.sh` does exactly that, and
 also asserts two properties that are easy to regress: the publish token is
@@ -42,8 +55,9 @@ and `docker.yml`, and set `packages/cli/package.json` `name`/`bin`.
   instance. Drizzle already targets it. (See D5.)
 - **Bundling runtime dependencies into a single artifact** — smaller, simpler
   runtime image, blocked by pino/fastify worker-thread resolution. (See D7.)
-- **npm + GHCR publishing** — release automation, blocked only on the repo
-  having a remote. (See D10.)
+- **npm package publishing** — blocked on an npm account and a final package
+  name (`updraft` is taken there; `updraft-ota`/`updraft-cli` are free). GHCR
+  is done. (See D10.)
 
 ---
 
