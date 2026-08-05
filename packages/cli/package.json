@@ -19,7 +19,9 @@
   "dependencies": {
     "@expo/code-signing-certificates": "^0.0.6",
     "@ota/core": "workspace:*",
-    "commander": "^15.0.0"
+    "commander": "^15.0.0",
+    "mime": "^4.1.0",
+    "zod": "^4.4.3"
   },
   "devDependencies": {
     "@types/node": "^22.15.3"

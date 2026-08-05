@@ -63,32 +63,19 @@ code=$(curl -s -o /dev/null -w '%{http_code}' "${BASE}/api/admin/apps")
 [ "${code}" = "401" ] || fail "unauthenticated admin request returned ${code}, expected 401"
 pass "unauthenticated admin request rejected"
 
+echo "==> building the CLI"
+(cd "${ROOT}" && pnpm --filter @ota/cli build >/dev/null 2>&1) || fail "cli build failed"
+CLI="${ROOT}/packages/cli/dist/index.js"
+export UPDRAFT_PUBLISH_TOKEN="${TOKEN}"
+
 echo "==> creating app"
-curl -fsS -X POST "${BASE}/api/admin/apps" \
-  -H "authorization: Bearer ${TOKEN}" -H 'content-type: application/json' \
-  -d '{"slug":"demo","name":"Demo App"}' >/dev/null
-pass "app created"
+node "${CLI}" apps create --server "${BASE}" --slug demo --name "Demo App" >/dev/null
+pass "app created via the CLI"
 
 BUNDLE_FILE="${FIXTURE}/_expo/static/js/ios/index.hbc"
 ICON_FILE="${FIXTURE}/assets/icon.txt"
 BUNDLE_HASH=$(sha256 "${BUNDLE_FILE}")
 ICON_HASH=$(sha256 "${ICON_FILE}")
-
-echo "==> negotiating which blobs are missing"
-missing=$(curl -fsS -X POST "${BASE}/api/admin/assets/check" \
-  -H "authorization: Bearer ${TOKEN}" -H 'content-type: application/json' \
-  -d "{\"hashes\":[\"${BUNDLE_HASH}\",\"${ICON_HASH}\"]}")
-echo "${missing}" | grep -q "${BUNDLE_HASH}" || fail "server did not report the bundle as missing"
-pass "server reports both blobs missing"
-
-echo "==> uploading blobs"
-for pair in "${BUNDLE_HASH}:${BUNDLE_FILE}" "${ICON_HASH}:${ICON_FILE}"; do
-  hash="${pair%%:*}"; file="${pair#*:}"
-  curl -fsS -X PUT "${BASE}/api/admin/assets/${hash}" \
-    -H "authorization: Bearer ${TOKEN}" -H 'content-type: application/octet-stream' \
-    --data-binary "@${file}" >/dev/null
-done
-pass "blobs uploaded"
 
 echo "==> a corrupted upload is rejected"
 code=$(printf 'not the bytes you claimed' | curl -s -o /dev/null -w '%{http_code}' \
@@ -98,19 +85,28 @@ code=$(printf 'not the bytes you claimed' | curl -s -o /dev/null -w '%{http_code
 [ "${code}" = "400" ] || fail "hash-mismatched upload returned ${code}, expected 400"
 pass "hash-mismatched upload rejected"
 
-echo "==> creating update"
-created=$(curl -fsS -X POST "${BASE}/api/admin/updates" \
-  -H "authorization: Bearer ${TOKEN}" -H 'content-type: application/json' \
-  -d "{
-    \"appSlug\":\"demo\",\"channelName\":\"production\",\"platform\":\"ios\",
-    \"runtimeVersion\":\"1.0.0\",
-    \"launchAsset\":{\"sha256Hex\":\"${BUNDLE_HASH}\",\"key\":\"bundle\",\"contentType\":\"application/javascript\",\"fileExtension\":\".hbc\"},
-    \"assets\":[{\"sha256Hex\":\"${ICON_HASH}\",\"key\":\"icon\",\"contentType\":\"text/plain\",\"fileExtension\":\".txt\"}],
-    \"metadata\":{}
-  }")
-GROUP_ID=$(printf '%s' "${created}" | python3 -c 'import json,sys; print(json.load(sys.stdin)["update"]["groupId"])')
-[ -n "${GROUP_ID}" ] || fail "could not read the published group id"
-pass "update published (group ${GROUP_ID})"
+echo "==> publishing the fixture export through the CLI"
+publish_output=$(node "${CLI}" publish \
+  --dir "${FIXTURE}" --server "${BASE}" --app demo \
+  --channel production --runtime-version 1.0.0)
+echo "${publish_output}" | grep -q 'published ios' || {
+  echo "${publish_output}"; fail "the CLI did not publish ios"
+}
+pass "published via the CLI"
+
+echo "==> republishing the same export uploads nothing"
+second=$(node "${CLI}" publish \
+  --dir "${FIXTURE}" --server "${BASE}" --app demo \
+  --channel production --runtime-version 1.0.0)
+echo "${second}" | grep -q '0 to upload' || {
+  echo "${second}"; fail "dedupe failed: a repeat publish re-uploaded blobs"
+}
+pass "content addressing deduped every blob"
+
+GROUP_ID=$(node "${CLI}" updates list --server "${BASE}" --app demo --channel production \
+  | awk 'NR==2 {print $1}')
+[ -n "${GROUP_ID}" ] || fail 'could not read a group id from "updates list"'
+pass "group ${GROUP_ID} listed"
 
 echo "==> fetching the manifest as a client would"
 headers=$(mktemp); body=$(mktemp)

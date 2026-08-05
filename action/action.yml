@@ -1,0 +1,100 @@
+name: Publish Updraft update
+description: Export a React Native / Expo app with Metro and publish it to a self-hosted Updraft server.
+
+inputs:
+  server-url:
+    description: Origin of the Updraft server, e.g. https://updates.example.com
+    required: true
+  app:
+    description: App slug on the server
+    required: true
+  channel:
+    description: Channel to publish to
+    required: true
+    default: production
+  runtime-version:
+    description: Runtime version this update targets
+    required: true
+  platforms:
+    description: Comma-separated platforms; defaults to everything the export contains
+    required: false
+    default: ''
+  working-directory:
+    description: Directory holding the Expo project
+    required: false
+    default: '.'
+  node-version:
+    description: Node version used for the export and publish
+    required: false
+    default: '22'
+  cli-command:
+    description: >
+      How to invoke the Updraft CLI. Defaults to the published package. Point it
+      at a local build (e.g. "node ../packages/cli/dist/index.js") until the
+      package is published.
+    required: false
+    default: 'npx --yes updraft-cli'
+
+# The publish token is NOT an input: inputs are echoed in workflow logs. Pass it
+# as an environment variable from a repository secret instead:
+#
+#   - uses: ./action
+#     env:
+#       UPDRAFT_PUBLISH_TOKEN: ${{ secrets.UPDRAFT_PUBLISH_TOKEN }}
+#     with:
+#       server-url: https://updates.example.com
+#       app: my-app
+#       channel: production
+#       runtime-version: '1.0.0'
+
+runs:
+  using: composite
+  steps:
+    - name: Setup Node
+      uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+      with:
+        node-version: ${{ inputs.node-version }}
+
+    - name: Fail early without a publish token
+      shell: bash
+      run: |
+        if [ -z "${UPDRAFT_PUBLISH_TOKEN:-}" ]; then
+          echo "UPDRAFT_PUBLISH_TOKEN is not set. Pass it via env: from a repository secret." >&2
+          exit 1
+        fi
+
+    - name: Export with Metro
+      shell: bash
+      working-directory: ${{ inputs.working-directory }}
+      run: npx expo export
+
+    - name: Capture the public Expo config
+      shell: bash
+      working-directory: ${{ inputs.working-directory }}
+      # Optional: some modules read this at runtime. A failure here must not
+      # fail the publish.
+      run: npx expo config --json --type public > dist/expoConfig.json || true
+
+    - name: Publish
+      shell: bash
+      working-directory: ${{ inputs.working-directory }}
+      # Inputs are interpolated into env vars rather than into the run script,
+      # so nothing from the workflow context is evaluated as shell.
+      env:
+        SERVER_URL: ${{ inputs.server-url }}
+        APP_SLUG: ${{ inputs.app }}
+        CHANNEL: ${{ inputs.channel }}
+        RUNTIME_VERSION: ${{ inputs.runtime-version }}
+        PLATFORMS: ${{ inputs.platforms }}
+        CLI_COMMAND: ${{ inputs.cli-command }}
+      run: |
+        args=(publish
+          --dir dist
+          --server "$SERVER_URL"
+          --app "$APP_SLUG"
+          --channel "$CHANNEL"
+          --runtime-version "$RUNTIME_VERSION"
+          --git-commit "$GITHUB_SHA")
+        if [ -n "$PLATFORMS" ]; then args+=(--platforms "$PLATFORMS"); fi
+        # shellcheck disable=SC2086 # cli-command is intentionally word-split
+        $CLI_COMMAND "${args[@]}"

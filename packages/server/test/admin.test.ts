@@ -209,6 +209,64 @@ describe('admin API — publishing', () => {
     expect(response.statusCode).toBe(404);
   });
 
+  it('lists updates newest first with their group ids', async () => {
+    const first = await publishFixture(harness.app);
+    const second = await publishFixture(harness.app, { createApp: false });
+
+    const response = await harness.app.inject({
+      method: 'GET',
+      url: '/api/admin/apps/demo/updates',
+      headers: auth,
+    });
+
+    expect(response.statusCode).toBe(200);
+    const listed = response.json().updates;
+    expect(listed).toHaveLength(2);
+    expect(listed[0].id).toBe(second.updateId);
+    expect(listed[1].id).toBe(first.updateId);
+    expect(listed[0].groupId).toBeDefined();
+    expect(listed[0].status).toBe('active');
+  });
+
+  it('filters the update list by channel', async () => {
+    await publishFixture(harness.app, { channelName: 'production' });
+    await publishFixture(harness.app, { channelName: 'staging', createApp: false });
+
+    const response = await harness.app.inject({
+      method: 'GET',
+      url: '/api/admin/apps/demo/updates?channel=staging',
+      headers: auth,
+    });
+
+    expect(response.json().updates).toHaveLength(1);
+  });
+
+  it('404s the update list for an unknown app or channel', async () => {
+    await publishFixture(harness.app);
+
+    const unknownApp = await harness.app.inject({
+      method: 'GET',
+      url: '/api/admin/apps/nope/updates',
+      headers: auth,
+    });
+    const unknownChannel = await harness.app.inject({
+      method: 'GET',
+      url: '/api/admin/apps/demo/updates?channel=nope',
+      headers: auth,
+    });
+
+    expect(unknownApp.statusCode).toBe(404);
+    expect(unknownChannel.statusCode).toBe(404);
+  });
+
+  it('requires auth on the update list', async () => {
+    const response = await harness.app.inject({
+      method: 'GET',
+      url: '/api/admin/apps/demo/updates',
+    });
+    expect(response.statusCode).toBe(401);
+  });
+
   it('does not leak internals when a request body is malformed', async () => {
     const response = await harness.app.inject({
       method: 'POST',

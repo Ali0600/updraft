@@ -133,6 +133,14 @@ storage is consulted and derives the storage key itself, so client input never
 reaches a filesystem path. Uppercase hex is rejected so one blob cannot be
 addressed two ways.
 
+**Asset `key` is the MD5 of the contents, not a filename.** This is Metro's own
+convention — an exported asset is literally named after its MD5, which the
+real-export E2E asserts — and it is what lets a client recognise an asset it
+already has embedded in the binary and skip downloading it. The bundle gets an
+MD5 key on the same basis. Two different hashes are therefore in play per
+asset, doing different jobs: SHA-256 addresses and verifies the bytes, MD5
+identifies the logical asset.
+
 ## Things to watch when the real client arrives (M5)
 
 Settled by reading the reference server:

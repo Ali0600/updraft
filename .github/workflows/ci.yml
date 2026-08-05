@@ -59,7 +59,19 @@ jobs:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
-      # Builds the image, publishes an update through the admin API, and
+      - name: Setup pnpm
+        uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6.0.10
+
+      - name: Setup Node
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: '22'
+          cache: pnpm
+
+      - name: Install
+        run: pnpm install --frozen-lockfile
+
+      # Builds the image, publishes a fixture export through the real CLI, and
       # fetches the manifest and every asset over real HTTP. Covers what the
       # in-process suite cannot: the bundle, migrations running from dist/,
       # and the native module actually loading.
@@ -73,6 +85,37 @@ jobs:
             echo "server booted without PUBLISH_TOKEN — fail-closed config is broken"
             exit 1
           fi
+
+  real-export:
+    name: publish a real metro export
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6.0.10
+
+      - name: Setup Node
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: '22'
+          cache: pnpm
+
+      - name: Install workspace
+        run: pnpm install --frozen-lockfile
+
+      - name: Install example app
+        working-directory: example-app
+        run: npm install
+
+      # The fixture export is hand-made; this one is Metro's real output, which
+      # is the only thing that proves the CLI parses what expo actually writes.
+      - name: Publish a real export end to end
+        run: ./scripts/e2e-real-export.sh 3000
+
+      - name: Verify the composite action's steps
+        run: ./scripts/verify-action-steps.sh 3010
 
   mutation:
     name: tests actually bite

@@ -81,6 +81,51 @@ absent" idiom into a compile error.
 spreading them in, never by assigning `undefined`. A confusing overload error
 on a call with an optional property is often this flag.
 
+## Content addressing turns "upload the build" into "upload what changed"
+
+Publishing asks the server which blob hashes it lacks, then uploads only those.
+A repeat publish of an unchanged export transfers zero bytes, and iOS and
+Android share every common asset rather than uploading it twice — 3.1 MB became
+0 MB on the second publish of a real export.
+
+**Why it came up:** mobile bundles are megabytes and most publishes change only
+the JS, so re-uploading unchanged assets every time is nearly all of the cost.
+
+**Takeaway:** when content is immutable and addressed by its hash, a
+"what do you already have?" round trip before uploading is a few lines of code
+and removes most of the transfer. The same shape works for Docker layers, CI
+caches, and asset pipelines generally.
+
+## Two hashes over the same bytes can mean two different things
+
+Each asset carries a SHA-256 (base64url) *and* an MD5. They are not redundant:
+SHA-256 addresses and verifies the bytes, while MD5 is Metro's logical asset
+identity — an exported asset is literally named after its MD5, which is how a
+client recognises an asset already embedded in its binary and skips the
+download.
+
+**Why it came up:** it looked like duplication until the reason for each was
+clear; collapsing them would have broken the client's embedded-asset matching.
+
+**Takeaway:** before deduplicating two hashes of the same data, ask what
+question each one answers. "Are these bytes intact?" and "is this the same
+logical thing?" are different questions, and an ecosystem convention often
+answers the second.
+
+## Secrets belong in `env:`, not in action inputs
+
+GitHub Action inputs are echoed into workflow logs, so a token passed as an
+input is a token printed in CI output. The publish token is therefore read from
+the environment in both the CLI and the Action, and never accepted as a flag or
+an input.
+
+**Why it came up:** an input is the natural place to put it, and the leak is
+invisible until someone reads a log.
+
+**Takeaway:** for any credential, the interface should make the safe path the
+only path — no flag, no input, environment only. Assert it: a test greps the
+action definition for a token input and fails if one appears.
+
 ## Where a spec is silent, the reference implementation is the real standard
 
 The Expo Updates spec defines `rollBackToEmbedded` but never says what to send

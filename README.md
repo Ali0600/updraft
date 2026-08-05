@@ -22,7 +22,7 @@ Early development. See `docs/` for design notes.
 | M0 | Scaffold, Docker, CI | done |
 | M1 | Protocol MVP (manifest + assets + publish API) | done |
 | M2 | Code signing, channels, rollback | done |
-| M3 | CLI + CI/CD publishing | planned |
+| M3 | Publishing CLI + GitHub Action | done |
 | M4 | S3 storage + observability | planned |
 | M5 | End-to-end dogfooding on a real app | planned |
 
@@ -50,6 +50,60 @@ docker compose -f docker/docker-compose.yml up --build
 ```bash
 curl -fsS http://localhost:3000/healthz
 ```
+
+## Publishing an update
+
+Build the CLI once (`pnpm --filter @ota/cli build`), then export and publish:
+
+```bash
+export UPDRAFT_PUBLISH_TOKEN=your-publish-token
+```
+
+```bash
+npx expo export
+```
+
+```bash
+node packages/cli/dist/index.js publish --dir dist --server http://localhost:3000 --app my-app --channel production --runtime-version 1.0.0
+```
+
+The token comes from the environment only, never a flag — flags land in shell
+history and CI logs.
+
+Publishing is content-addressed: the CLI asks the server which blobs it already
+has and uploads only the rest, so republishing an unchanged export transfers
+nothing and iOS and Android share every common asset.
+
+| Command | Purpose |
+| --- | --- |
+| `publish` | publish an `npx expo export` directory |
+| `keys generate` | create a code-signing certificate and key |
+| `apps create` / `apps list` | manage apps |
+| `updates list` | recent publishes with their group ids |
+| `rollback` | send clients back to the embedded bundle |
+| `updates republish` / `updates disable` | restore or retire a publish |
+
+### From CI
+
+[`action/action.yml`](action/action.yml) is a composite GitHub Action wrapping
+the same steps:
+
+```yaml
+- uses: ./action
+  env:
+    UPDRAFT_PUBLISH_TOKEN: ${{ secrets.UPDRAFT_PUBLISH_TOKEN }}
+  with:
+    server-url: https://updates.example.com
+    app: my-app
+    channel: production
+    runtime-version: '1.0.0'
+```
+
+The token is an `env:` value rather than an input because action inputs are
+echoed into workflow logs. Its steps are verified by
+`scripts/verify-action-steps.sh`, which runs each `run:` block locally against a
+real server — the action cannot execute here, and unverified YAML is not a
+feature.
 
 ## API
 
@@ -110,7 +164,9 @@ app-store release** — certificates are generated with a 10-year validity, and
 ```
 packages/core     protocol types, hashing, multipart, code signing
 packages/server   Fastify server: manifest endpoint, asset delivery, admin API
-packages/cli      key generation; publishing (wraps `expo export` output)
+packages/cli      publishing, key generation, and release management
+example-app       a real Expo app used to produce genuine Metro exports
+action            composite GitHub Action wrapping the publish flow
 ```
 
 - **Metadata** lives in SQLite (Drizzle ORM) — single-instance by design. The
@@ -140,11 +196,23 @@ pnpm test:bite   # mutation check: breaks each guard, fails if tests stay green
 ./scripts/e2e-docker.sh
 ```
 
+```bash
+./scripts/e2e-real-export.sh
+```
+
 `test:bite` breaks one guard at a time and asserts the suite notices — a test
-that has never failed proves nothing. `e2e-docker.sh` publishes an update
-through the real container and verifies every asset over HTTP, covering what
-in-process tests structurally cannot: the built bundle, migrations running from
-`dist/`, and the native SQLite module actually loading.
+that has never failed proves nothing.
+
+`e2e-docker.sh` publishes a small checked-in fixture through the real CLI and
+container, so it stays fast and offline while covering what in-process tests
+structurally cannot: the built bundle, migrations running from `dist/`, and the
+native SQLite module actually loading.
+
+`e2e-real-export.sh` runs `npx expo export` on `example-app/` and publishes
+that — genuine 1.4 MB Hermes bundles for both platforms and a real
+content-addressed asset. It asserts the manifest matches the export byte for
+byte, that asset keys equal Metro's own MD5 filenames, and that a repeat
+publish uploads nothing. Requires `npm install` in `example-app/` first.
 
 ## Experience Gained
 
@@ -173,6 +241,13 @@ in-process tests structurally cannot: the built bundle, migrations running from
 - Designed reversible release operations (rollback to embedded, republish,
   disable) as append-only state transitions, preserving an audit trail and
   making every operation individually undoable.
+- Built a publishing CLI that ingests Metro build output and uploads only the
+  blobs a server lacks, cutting repeat publishes of multi-megabyte bundles to
+  zero bytes transferred through content-addressed deduplication.
+- Authored a composite GitHub Action for release automation, keeping
+  credentials out of workflow logs by routing them through environment
+  variables rather than action inputs, and validating every step locally
+  against a live server.
 
 ## Prior art
 

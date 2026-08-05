@@ -3,6 +3,37 @@
 Design forks with real alternatives, recorded as they were decided. Rejected
 options are kept because the reasoning behind them is worth revisiting.
 
+## D10 — Publishing plumbing that needs a remote (2026-08-05)
+
+**Fork:** M3 planned npm publishing (changesets + a release workflow), a GHCR
+image push, and the composite GitHub Action. The repo has no remote, so none of
+the first two can run.
+
+| Option | Tradeoff |
+| --- | --- |
+| Author all three now | Two of them are YAML nothing can execute — unverified config that reads as done |
+| Author only what can be verified | The Action ships tested; publishing waits until there is somewhere to publish from |
+| Defer everything | Loses the Action, whose steps *can* be verified locally |
+
+**Chosen:** author the Action, defer npm and GHCR publishing.
+
+The Action earns its place because every `run:` block can be executed here
+against a real server — `scripts/verify-action-steps.sh` does exactly that, and
+also asserts two properties that are easy to regress: the publish token is
+never an action *input* (inputs are echoed into workflow logs), and no `${{ }}`
+interpolation appears inside a `run:` body (a shell-injection vector).
+
+- *npm publish / changesets:* **deferred — blocked on a remote.** Also blocked
+  on the public package name: bare `updraft` and the `@updraft` scope are
+  taken; `updraft-ota` and `updraft-cli` are free. The Action's `cli-command`
+  input defaults to `npx --yes updraft-cli` and can point at a local build in
+  the meantime.
+- *GHCR image push:* **deferred — blocked on a remote.** The image already
+  builds and is exercised by both E2E scripts on every run.
+
+**Revisit hook:** the day a GitHub repository exists — add `.github/workflows/release.yml`
+and `docker.yml`, and set `packages/cli/package.json` `name`/`bin`.
+
 ## Backlog — alternatives worth trying later
 
 - **Native-Swift asset/config OTA** — a genuinely different product; would let
@@ -11,6 +42,8 @@ options are kept because the reasoning behind them is worth revisiting.
   instance. Drizzle already targets it. (See D5.)
 - **Bundling runtime dependencies into a single artifact** — smaller, simpler
   runtime image, blocked by pino/fastify worker-thread resolution. (See D7.)
+- **npm + GHCR publishing** — release automation, blocked only on the repo
+  having a remote. (See D10.)
 
 ---
 

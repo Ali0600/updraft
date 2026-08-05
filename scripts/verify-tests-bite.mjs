@@ -223,6 +223,69 @@ const SABOTAGES = [
     find: 'writeFileSync(privateKeyPath, privateKeyPEM, { mode: 0o600 });',
     replace: 'writeFileSync(privateKeyPath, privateKeyPEM, { mode: 0o644 });',
   },
+
+  // --- M3: publishing pipeline ---
+  {
+    label: 'export: key assets by filename instead of content MD5',
+    file: C('exportDir.ts'),
+    find: "    key: createHash('md5').update(bytes).digest('hex'),",
+    replace: '    key: relativePath,',
+  },
+  {
+    label: 'export: derive every content type from the extension, bundle included',
+    file: C('exportDir.ts'),
+    find: "      launchAsset: readExportedFile(dir, files.bundle, 'application/javascript', '.bundle'),",
+    replace:
+      "      launchAsset: readExportedFile(dir, files.bundle, mime.getType(files.bundle) ?? 'application/octet-stream', '.bundle'),",
+  },
+  {
+    label: 'export: accept metadata that names an unreadable file',
+    file: C('exportDir.ts'),
+    find: '    throw new ExportDirError(\n      `metadata.json references ${relativePath} but it is unreadable: ${(error as Error).message}`,\n    );',
+    replace: '    bytes = Buffer.alloc(0);',
+  },
+  {
+    label: 'export: silently ignore a platform that is not in the export',
+    file: C('exportDir.ts'),
+    find: '    if (!files) {',
+    replace: '    if (files === undefined && false) {',
+  },
+  {
+    label: 'publish: upload every blob, ignoring what the server already has',
+    file: C('commands/publish.ts'),
+    find: '  return { files, toUpload: [...files.keys()].filter((hash) => missing.has(hash)) };',
+    replace: '  return { files, toUpload: [...files.keys()] };',
+  },
+  {
+    label: 'publish: send the file path as the asset key',
+    file: C('commands/publish.ts'),
+    find: '    key: file.key,',
+    replace: '    key: file.path,',
+  },
+  {
+    label: 'api: fall back to a token baked into the client',
+    file: C('api.ts'),
+    find: '    if (!token) {',
+    replace: '    if (token === undefined && false) {',
+  },
+  {
+    label: 'api: treat a non-2xx response as success',
+    file: C('api.ts'),
+    find: '    if (!response.ok) {',
+    replace: '    if (!response.ok && false) {',
+  },
+  {
+    label: 'admin list: ignore the channel filter',
+    file: S('routes/admin.ts'),
+    find: '        filters.push(eq(updates.channelId, channelRow.id));',
+    replace: '',
+  },
+  {
+    label: 'admin list: return oldest updates first',
+    file: S('routes/admin.ts'),
+    find: '        .orderBy(desc(updates.seq))',
+    replace: '        .orderBy(updates.seq)',
+  },
 ];
 
 const hashFile = (file) => createHash('sha256').update(readFileSync(file)).digest('hex');

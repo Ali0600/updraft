@@ -1,9 +1,10 @@
 import { PLATFORMS } from '@ota/core';
+import { and, desc, eq } from 'drizzle-orm';
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import type { Config } from '../config.js';
 import type { Db } from '../db/client.js';
-import { apps } from '../db/schema.js';
+import { apps, channels, updates } from '../db/schema.js';
 import { requireBearerToken } from '../plugins/auth.js';
 import {
   createApp,
@@ -60,6 +61,11 @@ const rollbackSchema = z.object({
   runtimeVersion: z.string().min(1),
   /** Omitted means every platform — a bad release is rarely bad on only one. */
   platforms: z.array(z.enum(PLATFORMS)).nonempty().optional(),
+});
+
+const listUpdatesQuerySchema = z.object({
+  channel: z.string().min(1).optional(),
+  limit: z.coerce.number().int().min(1).max(200).default(50),
 });
 
 export interface AdminRoutesOptions {
@@ -122,6 +128,52 @@ export async function adminRoutes(
     const update = await createUpdate(db, storage, body);
     return reply.code(201).send({ update });
   });
+
+  // How operators discover groupIds for republish/disable.
+  app.get<{ Params: { appSlug: string }; Querystring: { channel?: string; limit?: string } }>(
+    '/api/admin/apps/:appSlug/updates',
+    async (request, reply) => {
+      const query = listUpdatesQuerySchema.parse(request.query);
+
+      const appRow = db.select().from(apps).where(eq(apps.slug, request.params.appSlug)).get();
+      if (!appRow) {
+        return reply.code(404).send({ error: `unknown app '${request.params.appSlug}'` });
+      }
+
+      const filters = [eq(updates.appId, appRow.id)];
+      if (query.channel) {
+        const channelRow = db
+          .select()
+          .from(channels)
+          .where(and(eq(channels.appId, appRow.id), eq(channels.name, query.channel)))
+          .get();
+        if (!channelRow) {
+          return reply.code(404).send({ error: `unknown channel '${query.channel}'` });
+        }
+        filters.push(eq(updates.channelId, channelRow.id));
+      }
+
+      const rows = db
+        .select({
+          id: updates.id,
+          groupId: updates.groupId,
+          platform: updates.platform,
+          runtimeVersion: updates.runtimeVersion,
+          type: updates.type,
+          status: updates.status,
+          createdAt: updates.createdAt,
+          gitCommit: updates.gitCommit,
+          publishedBy: updates.publishedBy,
+        })
+        .from(updates)
+        .where(and(...filters))
+        .orderBy(desc(updates.seq))
+        .limit(query.limit)
+        .all();
+
+      return { updates: rows };
+    },
+  );
 
   // --- lifecycle -----------------------------------------------------------
   // All three append or flip state rather than deleting, so every one of them

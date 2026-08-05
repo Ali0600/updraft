@@ -27,6 +27,10 @@ data/
 *.sqlite-shm
 *.db
 
+# expo
+.expo/
+example-app/dist/
+
 # os / editor
 .DS_Store
 *.log
