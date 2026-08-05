@@ -12,6 +12,11 @@ import {
   PublishError,
   storeAsset,
 } from '../services/publishService.js';
+import {
+  disableUpdateGroup,
+  republishUpdateGroup,
+  rollbackToEmbedded,
+} from '../services/updateLifecycle.js';
 import type { BlobStorage } from '../storage/BlobStorage.js';
 
 /** 200 MB: a release JS bundle with assets, with room to spare. */
@@ -49,6 +54,12 @@ const createUpdateSchema = z.object({
 
 const checkAssetsSchema = z.object({
   hashes: z.array(z.string()).max(10_000),
+});
+
+const rollbackSchema = z.object({
+  runtimeVersion: z.string().min(1),
+  /** Omitted means every platform — a bad release is rarely bad on only one. */
+  platforms: z.array(z.enum(PLATFORMS)).nonempty().optional(),
 });
 
 export interface AdminRoutesOptions {
@@ -111,4 +122,52 @@ export async function adminRoutes(
     const update = await createUpdate(db, storage, body);
     return reply.code(201).send({ update });
   });
+
+  // --- lifecycle -----------------------------------------------------------
+  // All three append or flip state rather than deleting, so every one of them
+  // is itself reversible.
+
+  app.post<{ Params: { appSlug: string; channelName: string } }>(
+    '/api/admin/apps/:appSlug/channels/:channelName/rollback-to-embedded',
+    async (request, reply) => {
+      const body = rollbackSchema.parse(request.body);
+      const created = rollbackToEmbedded(db, {
+        appSlug: request.params.appSlug,
+        channelName: request.params.channelName,
+        runtimeVersion: body.runtimeVersion,
+        platforms: body.platforms,
+      });
+
+      request.log.warn(
+        {
+          appSlug: request.params.appSlug,
+          channelName: request.params.channelName,
+          runtimeVersion: body.runtimeVersion,
+          platforms: created.map((row) => row.platform),
+        },
+        'rolling clients back to the embedded bundle',
+      );
+
+      return reply.code(201).send({ groupId: created[0]?.groupId, updates: created });
+    },
+  );
+
+  app.post<{ Params: { groupId: string } }>(
+    '/api/admin/updates/:groupId/republish',
+    async (request, reply) => {
+      const created = republishUpdateGroup(db, request.params.groupId);
+      return reply
+        .code(201)
+        .send({ groupId: created[0]?.groupId, from: request.params.groupId, updates: created });
+    },
+  );
+
+  app.post<{ Params: { groupId: string } }>(
+    '/api/admin/updates/:groupId/disable',
+    async (request, reply) => {
+      const disabled = disableUpdateGroup(db, request.params.groupId);
+      request.log.warn({ groupId: request.params.groupId, disabled }, 'update group disabled');
+      return reply.code(200).send({ groupId: request.params.groupId, disabled });
+    },
+  );
 }

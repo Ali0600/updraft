@@ -17,6 +17,7 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
+    "@expo/code-signing-certificates": "^0.0.6",
     "@ota/core": "workspace:*",
     "commander": "^15.0.0"
   },

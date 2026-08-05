@@ -1,6 +1,12 @@
 import { sha256Hex } from '@ota/core';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { auth, BUNDLE, publishFixture } from './helpers/publishFixture.js';
+import {
+  auth,
+  BUNDLE,
+  clientHeaders,
+  expectNoUpdateAvailable,
+  publishFixture,
+} from './helpers/publishFixture.js';
 import { createTestApp, type TestHarness } from './helpers/testApp.js';
 
 describe('admin API — authentication', () => {
@@ -93,15 +99,9 @@ describe('admin API — publishing', () => {
       const response = await harness.app.inject({
         method: 'GET',
         url: '/api/manifest/demo',
-        headers: {
-          'expo-protocol-version': '1',
-          'expo-platform': 'ios',
-          'expo-runtime-version': '1.0.0',
-          accept: 'multipart/mixed',
-          'expo-channel-name': channel,
-        },
+        headers: clientHeaders({ 'expo-channel-name': channel }),
       });
-      expect(response.statusCode).toBe(204);
+      expectNoUpdateAvailable(response);
     }
   });
 

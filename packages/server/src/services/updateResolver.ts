@@ -15,12 +15,25 @@ export interface ResolveRequest {
   embeddedUpdateId?: string | undefined;
 }
 
+export interface ResolvedManifest {
+  update: UpdateRow;
+  launchAsset: AssetRow;
+  assets: AssetRow[];
+}
+
 export type ResolveOutcome =
   | { kind: 'appNotFound' }
   | { kind: 'channelNotFound' }
+  /** Nothing active to serve for this target. */
   | { kind: 'noUpdate' }
+  /**
+   * The client already runs the newest update. Kept distinct from `noUpdate`
+   * and carrying the manifest data, because protocol version 0 has no way to
+   * say "you are current" and re-serves the manifest instead.
+   */
+  | ({ kind: 'upToDate' } & ResolvedManifest)
   | { kind: 'rollback'; commitTime: string }
-  | { kind: 'manifest'; update: UpdateRow; launchAsset: AssetRow; assets: AssetRow[] };
+  | ({ kind: 'manifest' } & ResolvedManifest);
 
 /**
  * The protocol's decision logic: given what a client reports about itself,
@@ -69,8 +82,6 @@ export async function resolveUpdate(db: Db, request: ResolveRequest): Promise<Re
     return onEmbedded ? { kind: 'noUpdate' } : { kind: 'rollback', commitTime: update.createdAt };
   }
 
-  if (request.currentUpdateId === update.id) return { kind: 'noUpdate' };
-
   if (!update.launchAssetId) {
     throw new Error(`update ${update.id} is type 'normal' but has no launch asset`);
   }
@@ -92,7 +103,10 @@ export async function resolveUpdate(db: Db, request: ResolveRequest): Promise<Re
     // make the client download it twice.
     .filter((asset) => asset.id !== launchAsset.id);
 
-  return { kind: 'manifest', update, launchAsset, assets: assetRows };
+  // Resolved either way: protocol version 0 re-serves the manifest to a client
+  // that is already current, so the caller needs the data in both branches.
+  const kind = request.currentUpdateId === update.id ? 'upToDate' : 'manifest';
+  return { kind, update, launchAsset, assets: assetRows };
 }
 
 /** Used by the publish path to confirm every referenced blob already exists. */

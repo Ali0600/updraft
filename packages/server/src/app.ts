@@ -6,6 +6,7 @@ import { adminRoutes } from './routes/admin.js';
 import { assetRoutes } from './routes/assets.js';
 import { healthRoutes } from './routes/health.js';
 import { manifestRoutes } from './routes/manifest.js';
+import { createSigner } from './services/signer.js';
 import type { BlobStorage } from './storage/BlobStorage.js';
 import { LocalFsStorage } from './storage/localFs.js';
 
@@ -52,10 +53,17 @@ export async function buildApp({
 
   const storage = injectedStorage ?? new LocalFsStorage(config.STORAGE_LOCAL_ROOT);
 
+  // Throws when a key is configured but unusable, so a broken key stops the
+  // boot instead of silently serving unsigned updates.
+  const signer = createSigner(config);
+  if (signer) {
+    app.log.info({ keyId: signer.keyId }, 'code signing enabled');
+  }
+
   app.decorate('config', config);
 
   await app.register(healthRoutes);
-  await app.register(manifestRoutes, { db, config });
+  await app.register(manifestRoutes, { db, config, signer });
   await app.register(assetRoutes, { db, storage });
   await app.register(adminRoutes, { db, storage, config });
 

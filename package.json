@@ -11,10 +11,11 @@
   },
   "scripts": {
     "build": "pnpm -r build",
-    "typecheck": "pnpm -r typecheck",
+    "build:core": "pnpm --filter @ota/core build",
+    "typecheck": "pnpm run build:core && pnpm -r typecheck",
     "lint": "biome check .",
     "lint:fix": "biome check --write .",
-    "test": "vitest run",
+    "test": "pnpm run build:core && vitest run",
     "test:watch": "vitest",
     "test:bite": "node scripts/verify-tests-bite.mjs",
     "dev": "pnpm --filter @ota/server dev"

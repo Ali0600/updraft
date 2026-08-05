@@ -15,10 +15,14 @@ services:
       # No default: the server refuses to start without it.
       PUBLISH_TOKEN: ${PUBLISH_TOKEN:?set PUBLISH_TOKEN in .env (openssl rand -hex 32)}
       CODE_SIGNING_KEY_ID: ${CODE_SIGNING_KEY_ID:-main}
+      # Points at the mount below. Leave unset to run without code signing;
+      # set it and clients can demand signed updates.
+      CODE_SIGNING_PRIVATE_KEY_PATH: ${CODE_SIGNING_PRIVATE_KEY_PATH:-}
     volumes:
       - ota-data:/data
-      # M2 adds a read-only `../certs:/keys` mount here: signing keys stay on
-      # the host and are never baked into the image.
+      # Signing keys stay on the host, read-only, never baked into the image.
+      # Create them with: updraft keys generate --output ./certs
+      - ../certs:/keys:ro
     restart: unless-stopped
 
 volumes:

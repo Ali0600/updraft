@@ -67,6 +67,27 @@ export function parseExpectSignatureHeader(header: string): ExpectedSignature | 
   return { keyid, alg: stringMember(dict, 'alg') };
 }
 
+/**
+ * Reads back an `expo-signature` value. The mirror of
+ * {@link serializeSignatureHeader}, so a round-trip can be asserted rather
+ * than assumed.
+ */
+export function parseSignatureHeader(header: string): SignatureHeader | undefined {
+  let dict: Dictionary;
+  try {
+    dict = parseDictionary(header);
+  } catch {
+    return undefined;
+  }
+
+  const sig = stringMember(dict, 'sig');
+  const keyid = stringMember(dict, 'keyid');
+  if (!sig || !keyid) return undefined;
+
+  const alg = stringMember(dict, 'alg');
+  return { sig, keyid, ...(alg ? { alg } : {}) };
+}
+
 function stringMember(dict: Dictionary, key: string): string | undefined {
   // Members are `[BareItem, Parameters]` or `[Item[], Parameters]`; only the
   // former can carry a bare string, so a non-string here is simply absent.

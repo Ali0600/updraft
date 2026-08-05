@@ -45,3 +45,12 @@ export type Directive = z.infer<typeof directiveSchema>;
 export function rollBackToEmbeddedDirective(commitTime: string): Directive {
   return { type: 'rollBackToEmbedded', parameters: { commitTime } };
 }
+
+/**
+ * Protocol version 1's explicit "nothing to apply". Preferred over a bare 204
+ * because a body can be signed, and a client that demanded a signature has no
+ * way to authenticate an empty response.
+ */
+export function noUpdateAvailableDirective(): Directive {
+  return { type: 'noUpdateAvailable' };
+}

@@ -1,4 +1,4 @@
-# ota-os
+# Updraft
 
 A self-hosted, open-source update server for React Native / Expo apps — an
 alternative to the hosted EAS Update service, implementing the published
@@ -21,7 +21,7 @@ Early development. See `docs/` for design notes.
 | --- | --- | --- |
 | M0 | Scaffold, Docker, CI | done |
 | M1 | Protocol MVP (manifest + assets + publish API) | done |
-| M2 | Code signing, channels, rollback | planned |
+| M2 | Code signing, channels, rollback | done |
 | M3 | CLI + CI/CD publishing | planned |
 | M4 | S3 storage + observability | planned |
 | M5 | End-to-end dogfooding on a real app | planned |
@@ -72,16 +72,45 @@ caching. Details and the full resolution order are in
 | `POST /api/admin/assets/check` | ask which blobs still need uploading |
 | `PUT /api/admin/assets/:sha256` | upload a blob (re-hashed server-side) |
 | `POST /api/admin/updates` | publish an update to a channel |
+| `POST /api/admin/apps/:app/channels/:channel/rollback-to-embedded` | send clients back to the bundle in the binary |
+| `POST /api/admin/updates/:groupId/republish` | put an earlier publish back in front |
+| `POST /api/admin/updates/:groupId/disable` | take a publish out of service |
 
 Uploads are content-addressed and deduplicated, so republishing only transfers
-what actually changed.
+what actually changed. Every lifecycle operation appends a new row rather than
+mutating history, so each one is itself reversible and leaves an audit trail.
+
+## Code signing
+
+Devices can require that an update was signed by your key before applying it.
+
+```bash
+node packages/cli/dist/index.js keys generate --output ./certs
+```
+
+Give the server the private key (`CODE_SIGNING_PRIVATE_KEY_PATH=/keys/private-key.pem`,
+mounted read-only) and embed `certs/certificate.pem` in the app via
+`updates.codeSigningCertificate`, with
+`codeSigningMetadata: { keyid: "main", alg: "rsa-v1_5-sha256" }`. The
+`keys generate` output prints the exact config snippet.
+
+Signing is opt-in per request: clients ask with `expo-expect-signature`. When
+one does, anything that would prevent a correct signature — no key configured,
+an unknown `keyid`, an unsupported algorithm — is a `400`, never an unsigned
+`200`, since serving unsigned to a client that asked for a signature is exactly
+the downgrade this prevents. A key that is configured but unreadable stops the
+server at boot for the same reason.
+
+The certificate ships inside the app binary, so **rotating the key requires an
+app-store release** — certificates are generated with a 10-year validity, and
+`keys generate` refuses to overwrite existing keys.
 
 ## Architecture
 
 ```
 packages/core     protocol types, hashing, multipart, code signing
 packages/server   Fastify server: manifest endpoint, asset delivery, admin API
-packages/cli      publishing CLI (wraps `expo export` output)
+packages/cli      key generation; publishing (wraps `expo export` output)
 ```
 
 - **Metadata** lives in SQLite (Drizzle ORM) — single-instance by design. The
@@ -137,6 +166,13 @@ in-process tests structurally cannot: the built bundle, migrations running from
 - Diagnosed a container-only runtime failure caused by a native module's
   prebuilt binary requiring a newer glibc than the base image provided,
   reducing image size 28% by eliminating an unnecessary source build.
+- Implemented RSA code signing end to end — key generation, certificate
+  issuance, request-scoped signing, and fail-closed key validation at boot —
+  verifying signatures against an independent cryptographic implementation to
+  prove interoperability rather than self-consistency.
+- Designed reversible release operations (rollback to embedded, republish,
+  disable) as append-only state transitions, preserving an audit trail and
+  making every operation individually undoable.
 
 ## Prior art
 

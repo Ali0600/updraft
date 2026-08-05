@@ -2,14 +2,14 @@ import { manifestSchema, parseMultipartBody, sha256Base64Url } from '@ota/core';
 import { eq } from 'drizzle-orm';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { updates } from '../../src/db/schema.js';
-import { clientHeaders, publishFixture } from '../helpers/publishFixture.js';
+import {
+  boundaryOf,
+  clientHeaders,
+  expectNoUpdateAvailable,
+  parseSinglePart,
+  publishFixture,
+} from '../helpers/publishFixture.js';
 import { createTestApp, type TestHarness } from '../helpers/testApp.js';
-
-function boundaryOf(contentType: string): string {
-  const boundary = /boundary=([^;]+)/.exec(contentType)?.[1];
-  if (!boundary) throw new Error(`no boundary in content-type: ${contentType}`);
-  return boundary;
-}
 
 describe('manifest endpoint — protocol conformance', () => {
   let harness: TestHarness;
@@ -108,29 +108,40 @@ describe('manifest endpoint — protocol conformance', () => {
       expect(response.headers['cache-control']).toBe('private, max-age=0');
     });
 
-    it('sets them on a 204 too, where they are easiest to forget', async () => {
+    it('sets them on a protocol-0 204 too, where they are easiest to forget', async () => {
       await publishFixture(harness.app);
       const response = await harness.app.inject({
         method: 'GET',
         url: '/api/manifest/demo',
-        headers: clientHeaders({ 'expo-runtime-version': '99.0.0' }),
+        headers: clientHeaders({ 'expo-protocol-version': '0', 'expo-runtime-version': '99.0.0' }),
       });
 
       expect(response.statusCode).toBe(204);
-      expect(response.headers['expo-protocol-version']).toBe('1');
+      expect(response.headers['expo-protocol-version']).toBe('0');
       expect(response.headers['expo-sfv-version']).toBe('0');
+    });
+
+    it('echoes the client’s protocol version rather than hardcoding 1', async () => {
+      await publishFixture(harness.app);
+      const response = await harness.app.inject({
+        method: 'GET',
+        url: '/api/manifest/demo',
+        headers: clientHeaders({ 'expo-protocol-version': '0' }),
+      });
+
+      expect(response.headers['expo-protocol-version']).toBe('0');
     });
   });
 
   describe('update resolution', () => {
-    it('returns 204 when nothing is published for the runtime version', async () => {
+    it('says noUpdateAvailable when nothing is published for the runtime version', async () => {
       await publishFixture(harness.app, { runtimeVersion: '1.0.0' });
       const response = await harness.app.inject({
         method: 'GET',
         url: '/api/manifest/demo',
         headers: clientHeaders({ 'expo-runtime-version': '2.0.0' }),
       });
-      expect(response.statusCode).toBe(204);
+      expectNoUpdateAvailable(response);
     });
 
     it('does not serve another platform’s update', async () => {
@@ -140,17 +151,32 @@ describe('manifest endpoint — protocol conformance', () => {
         url: '/api/manifest/demo',
         headers: clientHeaders({ 'expo-platform': 'android' }),
       });
-      expect(response.statusCode).toBe(204);
+      expectNoUpdateAvailable(response);
     });
 
-    it('returns 204 when the client already runs the newest update', async () => {
+    it('says noUpdateAvailable when the client already runs the newest update', async () => {
       const { updateId } = await publishFixture(harness.app);
       const response = await harness.app.inject({
         method: 'GET',
         url: '/api/manifest/demo',
         headers: clientHeaders({ 'expo-current-update-id': updateId }),
       });
-      expect(response.statusCode).toBe(204);
+      expectNoUpdateAvailable(response);
+    });
+
+    it('re-serves the manifest to an up-to-date client on protocol 0, which has no directives', async () => {
+      const { updateId } = await publishFixture(harness.app);
+      const response = await harness.app.inject({
+        method: 'GET',
+        url: '/api/manifest/demo',
+        headers: clientHeaders({
+          'expo-protocol-version': '0',
+          'expo-current-update-id': updateId,
+        }),
+      });
+
+      expect(response.statusCode).toBe(200);
+      expect((parseSinglePart(response).json as { id: string }).id).toBe(updateId);
     });
 
     it('serves the newest update when the client is on an older one', async () => {
@@ -181,7 +207,7 @@ describe('manifest endpoint — protocol conformance', () => {
         headers: clientHeaders(),
       });
 
-      expect(response.statusCode).toBe(204);
+      expectNoUpdateAvailable(response);
     });
 
     it('falls back to the previous update when the newest is disabled', async () => {
@@ -214,7 +240,7 @@ describe('manifest endpoint — protocol conformance', () => {
         url: '/api/manifest/demo',
         headers: clientHeaders({ 'expo-channel-name': 'staging' }),
       });
-      expect(response.statusCode).toBe(204);
+      expectNoUpdateAvailable(response);
     });
   });
 

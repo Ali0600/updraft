@@ -15,8 +15,12 @@ BASE="http://localhost:${PORT}"
 TOKEN="e2e-token-0123456789abcdef0123456789abcdef"
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 FIXTURE="${ROOT}/packages/server/test/fixtures/export-basic"
+CERTS="$(mktemp -d)"
 
-cleanup() { docker rm -f "${CONTAINER}" >/dev/null 2>&1 || true; }
+cleanup() {
+  docker rm -f "${CONTAINER}" >/dev/null 2>&1 || true
+  rm -rf "${CERTS}"
+}
 trap cleanup EXIT
 
 fail() { echo "FAIL: $*" >&2; exit 1; }
@@ -32,10 +36,19 @@ fi
 echo "==> building image"
 docker build -f "${ROOT}/docker/Dockerfile" -t "${IMAGE}" "${ROOT}" >/dev/null
 
+echo "==> generating code signing keys"
+(cd "${ROOT}" && pnpm --filter @ota/cli build >/dev/null 2>&1)
+node "${ROOT}/packages/cli/dist/index.js" keys generate --output "${CERTS}" >/dev/null
+[ -f "${CERTS}/private-key.pem" ] || fail "keys generate produced no private key"
+pass "code signing keys generated"
+
 echo "==> starting container on :${PORT}"
 docker run -d --name "${CONTAINER}" -p "${PORT}:3000" \
   -e "PUBLIC_URL=${BASE}" \
   -e "PUBLISH_TOKEN=${TOKEN}" \
+  -e "CODE_SIGNING_PRIVATE_KEY_PATH=/keys/private-key.pem" \
+  -e "CODE_SIGNING_KEY_ID=main" \
+  -v "${CERTS}:/keys:ro" \
   "${IMAGE}" >/dev/null
 
 for _ in $(seq 1 30); do
@@ -86,7 +99,7 @@ code=$(printf 'not the bytes you claimed' | curl -s -o /dev/null -w '%{http_code
 pass "hash-mismatched upload rejected"
 
 echo "==> creating update"
-curl -fsS -X POST "${BASE}/api/admin/updates" \
+created=$(curl -fsS -X POST "${BASE}/api/admin/updates" \
   -H "authorization: Bearer ${TOKEN}" -H 'content-type: application/json' \
   -d "{
     \"appSlug\":\"demo\",\"channelName\":\"production\",\"platform\":\"ios\",
@@ -94,8 +107,10 @@ curl -fsS -X POST "${BASE}/api/admin/updates" \
     \"launchAsset\":{\"sha256Hex\":\"${BUNDLE_HASH}\",\"key\":\"bundle\",\"contentType\":\"application/javascript\",\"fileExtension\":\".hbc\"},
     \"assets\":[{\"sha256Hex\":\"${ICON_HASH}\",\"key\":\"icon\",\"contentType\":\"text/plain\",\"fileExtension\":\".txt\"}],
     \"metadata\":{}
-  }" >/dev/null
-pass "update published"
+  }")
+GROUP_ID=$(printf '%s' "${created}" | python3 -c 'import json,sys; print(json.load(sys.stdin)["update"]["groupId"])')
+[ -n "${GROUP_ID}" ] || fail "could not read the published group id"
+pass "update published (group ${GROUP_ID})"
 
 echo "==> fetching the manifest as a client would"
 headers=$(mktemp); body=$(mktemp)
@@ -140,17 +155,103 @@ for asset in [manifest['launchAsset'], *manifest['assets']]:
 print(f"  ok: manifest {manifest['id']} valid; {1 + len(manifest['assets'])} asset(s) verified over HTTP")
 PY
 
-echo "==> an unpublished runtime version yields 204"
-code=$(curl -s -o /dev/null -w '%{http_code}' "${BASE}/api/manifest/demo" \
+echo "==> an unpublished runtime version yields noUpdateAvailable (protocol 1)"
+nothing=$(curl -fsS "${BASE}/api/manifest/demo" \
   -H 'expo-protocol-version: 1' -H 'expo-platform: ios' \
   -H 'expo-runtime-version: 99.0.0' -H 'accept: multipart/mixed')
-[ "${code}" = "204" ] || fail "unknown runtime version returned ${code}, expected 204"
-pass "unknown runtime version returns 204"
+echo "${nothing}" | grep -q 'noUpdateAvailable' || fail "expected a noUpdateAvailable directive"
+pass "unknown runtime version returns a noUpdateAvailable directive"
+
+echo "==> the same case on protocol 0, which has no directives, yields 204"
+code=$(curl -s -o /dev/null -w '%{http_code}' "${BASE}/api/manifest/demo" \
+  -H 'expo-protocol-version: 0' -H 'expo-platform: ios' \
+  -H 'expo-runtime-version: 99.0.0' -H 'accept: multipart/mixed')
+[ "${code}" = "204" ] || fail "protocol 0 no-update returned ${code}, expected 204"
+pass "protocol 0 returns 204"
 
 echo "==> a traversal attempt on the asset route is rejected"
 code=$(curl -s -o /dev/null -w '%{http_code}' --path-as-is "${BASE}/assets/..%2f..%2f..%2fetc%2fpasswd")
 [ "${code}" = "400" ] || [ "${code}" = "404" ] || fail "traversal attempt returned ${code}"
 pass "traversal attempt rejected (${code})"
+
+echo "==> a signed manifest verifies against the certificate"
+signed=$(mktemp)
+curl -fsS -o "${signed}" "${BASE}/api/manifest/demo" \
+  -H 'expo-protocol-version: 1' -H 'expo-platform: ios' \
+  -H 'expo-runtime-version: 1.0.0' -H 'accept: multipart/mixed' \
+  -H 'expo-expect-signature: sig, keyid="main", alg="rsa-v1_5-sha256"'
+
+# Verify with the certificate only — exactly what the device has.
+node -e '
+const { readFileSync } = require("node:fs");
+const { createVerify, X509Certificate } = require("node:crypto");
+const raw = readFileSync(process.argv[1], "latin1");
+const cert = readFileSync(process.argv[2], "utf8");
+
+const sigHeader = /expo-signature:\s*(.+)\r\n/i.exec(raw);
+if (!sigHeader) { console.error("FAIL: no expo-signature on the part"); process.exit(1); }
+const sig = /sig="([^"]+)"/.exec(sigHeader[1]);
+if (!sig) { console.error("FAIL: expo-signature has no sig member"); process.exit(1); }
+
+// The signed bytes are the part body exactly as transmitted.
+const bodyMatch = /\r\n\r\n(\{[\s\S]*\})\r\n--/.exec(raw);
+if (!bodyMatch) { console.error("FAIL: could not extract the part body"); process.exit(1); }
+const body = Buffer.from(bodyMatch[1], "latin1");
+
+const ok = createVerify("SHA256").update(body).end()
+  .verify(new X509Certificate(cert).publicKey, sig[1], "base64");
+if (!ok) { console.error("FAIL: signature does not verify against the certificate"); process.exit(1); }
+
+const tampered = Buffer.from(body.toString("utf8").replace("1.0.0", "9.9.9"), "utf8");
+const tamperedOk = createVerify("SHA256").update(tampered).end()
+  .verify(new X509Certificate(cert).publicKey, sig[1], "base64");
+if (tamperedOk) { console.error("FAIL: signature also verified TAMPERED bytes"); process.exit(1); }
+
+console.log("  ok: signature verifies, and rejects tampered bytes");
+' "${signed}" "${CERTS}/certificate.pem" || fail "signature verification failed"
+rm -f "${signed}"
+
+echo "==> a client demanding an unknown keyid is refused"
+code=$(curl -s -o /dev/null -w '%{http_code}' "${BASE}/api/manifest/demo" \
+  -H 'expo-protocol-version: 1' -H 'expo-platform: ios' \
+  -H 'expo-runtime-version: 1.0.0' -H 'accept: multipart/mixed' \
+  -H 'expo-expect-signature: sig, keyid="not-our-key"')
+[ "${code}" = "400" ] || fail "unknown keyid returned ${code}, expected 400"
+pass "unknown keyid refused"
+
+echo "==> rolling back to the embedded bundle"
+curl -fsS -X POST "${BASE}/api/admin/apps/demo/channels/production/rollback-to-embedded" \
+  -H "authorization: Bearer ${TOKEN}" -H 'content-type: application/json' \
+  -d '{"runtimeVersion":"1.0.0"}' >/dev/null
+
+rollback_body=$(curl -fsS "${BASE}/api/manifest/demo" \
+  -H 'expo-protocol-version: 1' -H 'expo-platform: ios' \
+  -H 'expo-runtime-version: 1.0.0' -H 'accept: multipart/mixed')
+echo "${rollback_body}" | grep -q 'rollBackToEmbedded' || fail "expected a rollBackToEmbedded directive"
+pass "clients now receive a rollback directive"
+
+echo "==> republishing restores the update"
+group=$(curl -fsS -X POST "${BASE}/api/admin/updates/${GROUP_ID}/republish" \
+  -H "authorization: Bearer ${TOKEN}")
+echo "${group}" | grep -q '"updates"' || fail "republish did not return updates"
+
+restored=$(curl -fsS "${BASE}/api/manifest/demo" \
+  -H 'expo-protocol-version: 1' -H 'expo-platform: ios' \
+  -H 'expo-runtime-version: 1.0.0' -H 'accept: multipart/mixed')
+echo "${restored}" | grep -q 'launchAsset' || fail "expected a manifest again after republish"
+# `grep -q X && fail` would abort under `set -e` on the success path, since a
+# grep that correctly finds nothing exits 1.
+if echo "${restored}" | grep -q 'rollBackToEmbedded'; then
+  fail "still serving the rollback directive after republish"
+fi
+pass "manifest served again after republish"
+
+echo "==> unsigned clients still work"
+curl -fsS -o /dev/null "${BASE}/api/manifest/demo" \
+  -H 'expo-protocol-version: 1' -H 'expo-platform: ios' \
+  -H 'expo-runtime-version: 1.0.0' -H 'accept: multipart/mixed' \
+  || fail "unsigned request failed"
+pass "unsigned request still served"
 
 rm -f "${headers}" "${body}"
 echo

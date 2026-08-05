@@ -14,6 +14,60 @@ options are kept because the reasoning behind them is worth revisiting.
 
 ---
 
+## D8 — Project name (2026-08-05)
+
+**Fork:** the name cannot contain "Expo" or "EAS" — Expo holds the trademark,
+and `expo-open-ota` was made to rename to `xprem` over exactly this.
+
+| Option | Tradeoff |
+| --- | --- |
+| Updraft | "updates" + over-the-air; reads as a product |
+| Skypatch | descriptive of patching apps in the field |
+| Volo | short and almost certainly free, but says nothing |
+
+**Chosen:** **Updraft**.
+
+- *Skypatch / Volo:* **rejected — Updraft says what it does.**
+
+npm reality, checked at decision time: bare `updraft` is taken (an unrelated
+2022 SQLite ORM) and the `@updraft` scope is registered; `updraft-ota` and
+`updraft-cli` are free. Public package naming is deferred to M3, when something
+is actually published. Internal workspace packages stay `@ota/*` and private —
+renaming them buys nothing and touches every import.
+
+**Revisit hook:** `packages/cli/package.json` `name`/`bin`, and the release
+workflow, at M3.
+
+## D9 — How to express "no update available" (2026-08-05)
+
+**Fork:** M1 answered every "nothing to apply" with `204`. Code signing forced
+the question, because a `204` has no body and therefore nothing to sign.
+
+The spec is silent here: it says a zero-length multipart body is a valid no-op,
+defines `rollBackToEmbedded`, and never states what to send when there is
+simply nothing to apply. Expo's reference server settles it.
+
+| Option | Tradeoff |
+| --- | --- |
+| Always `204` | Simplest; unauthenticatable by a client that demanded a signature |
+| `noUpdateAvailable` directive on protocol 1 | Signable, explicit; needs version-aware rendering |
+| Directive on every version | Protocol 0 has no directives and would not parse it |
+
+**Chosen:** a signed `noUpdateAvailable` directive for protocol 1 multipart
+clients; `204` for protocol 0 and for the JSON envelope, neither of which can
+carry a directive.
+
+- *Always 204:* **rejected — leaves signing clients unable to verify the most
+  common response.**
+- *Directive everywhere:* **rejected — protocol 0 predates directives.**
+
+This also introduced `upToDate` as an outcome distinct from `noUpdate`, because
+protocol 0 re-serves the manifest to an already-current client and therefore
+needs the manifest data in a branch where version 1 sends nothing.
+
+**Revisit hook:** `packages/server/src/routes/manifest.ts` (`nothingToApply`)
+and the `ResolveOutcome` union in `services/updateResolver.ts`.
+
 ## D1 — Which apps can we update over the air? (2026-08-04)
 
 **Fork:** Apple's Developer Program agreement (3.3.2) permits OTA updates to

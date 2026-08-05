@@ -25,7 +25,14 @@ const configSchema = z.object({
     .string()
     .min(32, 'PUBLISH_TOKEN must be at least 32 characters (generate with `openssl rand -hex 32`)'),
 
+  /**
+   * Code signing key, supplied as a file path (volume mount) or inline base64
+   * (platforms that only offer environment variables). Setting both is a
+   * configuration error rather than a silent precedence rule — the operator
+   * would have no way to tell which key is actually signing.
+   */
   CODE_SIGNING_PRIVATE_KEY_PATH: z.string().min(1).optional(),
+  CODE_SIGNING_PRIVATE_KEY_BASE64: z.string().min(1).optional(),
   CODE_SIGNING_KEY_ID: z.string().min(1).default('main'),
 });
 
@@ -36,7 +43,15 @@ export type Config = z.infer<typeof configSchema>;
  * boot rather than starting in a half-configured state.
  */
 export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
-  const result = configSchema.safeParse(env);
+  const result = configSchema
+    .refine(
+      (config) => !(config.CODE_SIGNING_PRIVATE_KEY_PATH && config.CODE_SIGNING_PRIVATE_KEY_BASE64),
+      {
+        path: ['CODE_SIGNING_PRIVATE_KEY_PATH'],
+        message: 'set CODE_SIGNING_PRIVATE_KEY_PATH or CODE_SIGNING_PRIVATE_KEY_BASE64, not both',
+      },
+    )
+    .safeParse(env);
   if (!result.success) {
     const details = result.error.issues
       .map((issue) => `  - ${issue.path.join('.') || '(root)'}: ${issue.message}`)

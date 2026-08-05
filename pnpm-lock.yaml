@@ -26,6 +26,9 @@ importers:
 
   packages/cli:
     dependencies:
+      '@expo/code-signing-certificates':
+        specifier: ^0.0.6
+        version: 0.0.6
       '@ota/core':
         specifier: workspace:*
         version: link:../core
@@ -74,15 +77,24 @@ importers:
         specifier: ^4.4.3
         version: 4.4.3
     devDependencies:
+      '@expo/code-signing-certificates':
+        specifier: ^0.0.6
+        version: 0.0.6
       '@types/better-sqlite3':
         specifier: ^7.6.13
         version: 7.6.13
       '@types/node':
         specifier: ^22.15.3
         version: 22.20.1
+      '@types/node-forge':
+        specifier: ^1.3.14
+        version: 1.3.14
       drizzle-kit:
         specifier: ^0.31.10
         version: 0.31.10
+      node-forge:
+        specifier: ^1.4.0
+        version: 1.4.0
       pino-pretty:
         specifier: ^13.1.3
         version: 13.1.3
@@ -778,6 +790,9 @@ packages:
     cpu: [x64]
     os: [win32]
 
+  '@expo/code-signing-certificates@0.0.6':
+    resolution: {integrity: sha512-iNe0puxwBNEcuua9gmTGzq+SuMDa0iATai1FlFTMHJ/vUmKvN/V//drXoLJkVb5i5H3iE/n/qIJxyoBnXouD0w==}
+
   '@fastify/accept-negotiator@2.0.1':
     resolution: {integrity: sha512-/c/TW2bO/v9JeEgoD/g1G5GxGeCF1Hafdf79WPmUlgYiBXummY0oX3VVq4yFkKKVBKDNlaDUYoab7g38RpPqCQ==}
 
@@ -1073,6 +1088,9 @@ packages:
 
   '@types/estree@1.0.9':
     resolution: {integrity: sha512-GhdPgy1el4/ImP05X05Uw4cw2/M93BCUmnEvWZNStlCzEKME4Fkk+YpoA5OiHNQmoS7Cafb8Xa3Pya8m1Qrzeg==}
+
+  '@types/node-forge@1.3.14':
+    resolution: {integrity: sha512-mhVF2BnD4BO+jtOp7z1CdzaK4mbuK0LLQYAvdOLqHTavxFNq4zA1EmYkpnFjP8HOUzedfQkRnp0E2ulSAYSzAw==}
 
   '@types/node@22.20.1':
     resolution: {integrity: sha512-EANqOCF9QFyra+4pfxUcX9STKJpCLjMbObVzljIJomAWSnuSIEAvyzEU53GaajbXJEgdh0iEcPL+DGvpUd4k1Q==}
@@ -1713,6 +1731,10 @@ packages:
   node-addon-api@8.9.1:
     resolution: {integrity: sha512-4eUQWVPCUUUiBjLnHS3cXWeC6ryoPUc0U3rP7IuzapoGbzMqd/r6KKO0clr0b+snQhsrueFEhCZDdK+LK7hxKg==}
     engines: {node: ^18 || ^20 || >= 21}
+
+  node-forge@1.4.0:
+    resolution: {integrity: sha512-LarFH0+6VfriEhqMMcLX2F7SwSXeWwnEAJEsYm5QKWchiVYVvJyV9v7UDvUv+w5HO23ZpQTXDv/GxdDdMyOuoQ==}
+    engines: {node: '>= 6.13.0'}
 
   object-assign@4.1.1:
     resolution: {integrity: sha512-rJgTQnkUnH1sFw8yT6VSU3zD3sWmu6sZhIseY8VX+GRu3P6F7Fu+JNDoXfklElbLJSnc3FUQHVe4cU5hj+BcUg==}
@@ -2452,6 +2474,10 @@ snapshots:
   '@esbuild/win32-x64@0.28.1':
     optional: true
 
+  '@expo/code-signing-certificates@0.0.6':
+    dependencies:
+      node-forge: 1.4.0
+
   '@fastify/accept-negotiator@2.0.1': {}
 
   '@fastify/ajv-compiler@4.0.5':
@@ -2639,6 +2665,10 @@ snapshots:
   '@types/deep-eql@4.0.2': {}
 
   '@types/estree@1.0.9': {}
+
+  '@types/node-forge@1.3.14':
+    dependencies:
+      '@types/node': 22.20.1
 
   '@types/node@22.20.1':
     dependencies:
@@ -3189,6 +3219,8 @@ snapshots:
   nanoid@3.3.17: {}
 
   node-addon-api@8.9.1: {}
+
+  node-forge@1.4.0: {}
 
   object-assign@4.1.1: {}
 

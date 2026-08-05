@@ -6,6 +6,12 @@
 //    restoring,
 //  - the test TOTAL must equal the baseline (a shrunken denominator means a
 //    file failed to import, so the run proved nothing).
+//
+// Patterns match source text literally, so refactoring — or merely the
+// formatter re-wrapping a line — can stale one out. That is reported as
+// PATTERN-NOT-FOUND and exits non-zero rather than passing silently; re-anchor
+// the pattern against the current source when it happens. Run this after
+// `pnpm lint:fix`, not before.
 
 import { execFileSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
@@ -15,6 +21,7 @@ import { fileURLToPath } from 'node:url';
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const S = (p) => resolve(ROOT, 'packages/server/src', p);
+const C = (p) => resolve(ROOT, 'packages/cli/src', p);
 
 const SABOTAGES = [
   {
@@ -32,8 +39,8 @@ const SABOTAGES = [
   {
     label: 'manifest: never return 406 for an unacceptable accept header',
     file: S('routes/manifest.ts'),
-    find: '  return undefined;\n}\n\nfunction sendManifest',
-    replace: "  return 'multipart';\n}\n\nfunction sendManifest",
+    find: "    return 'json';\n  return undefined;\n}",
+    replace: "    return 'json';\n  return 'multipart';\n}",
   },
   {
     label: 'resolver: ignore the platform filter',
@@ -56,8 +63,8 @@ const SABOTAGES = [
   {
     label: 'resolver: re-serve an update the client already runs',
     file: S('services/updateResolver.ts'),
-    find: "  if (request.currentUpdateId === update.id) return { kind: 'noUpdate' };\n",
-    replace: '',
+    find: "  const kind = request.currentUpdateId === update.id ? 'upToDate' : 'manifest';",
+    replace: "  const kind = 'manifest' as const;",
   },
   {
     label: 'resolver: serve updates regardless of status',
@@ -124,6 +131,97 @@ const SABOTAGES = [
     file: S('storage/localFs.ts'),
     find: 'if (path !== this.root && !path.startsWith(this.root + sep)) {',
     replace: 'if (path.length < 0) {',
+  },
+
+  // --- M2: code signing ---
+  {
+    label: 'signing: serve unsigned when the client demanded a signature',
+    file: S('routes/manifest.ts'),
+    find: '        sign = (bytes) => signer.sign(bytes);',
+    replace: '        sign = undefined;',
+  },
+  {
+    label: 'signing: sign a re-serialization instead of the bytes actually sent',
+    file: S('routes/manifest.ts'),
+    find: '  const signature = sign?.(body);',
+    replace: '  const signature = sign?.(`${body} `);',
+  },
+  {
+    label: 'signing: allow an unsigned 200 when no key is configured',
+    file: S('routes/manifest.ts'),
+    find: '        if (!signer) {',
+    replace: '        if (signer === undefined && false) {',
+  },
+  {
+    label: 'signing: sign with any keyid the client names',
+    file: S('routes/manifest.ts'),
+    find: '        if (expected.keyid !== signer.keyId) {',
+    replace: '        if (expected.keyid !== signer.keyId && false) {',
+  },
+  {
+    label: 'signing: put the signature on the response instead of the part',
+    file: S('routes/manifest.ts'),
+    find: "      ...(signature ? { headers: { 'expo-signature': signature } } : {}),",
+    replace: '',
+  },
+  {
+    label: 'signer: accept a configured key that cannot be parsed',
+    file: S('services/signer.ts'),
+    find: '    throw new SigningConfigError(\n      `code signing key is not a readable private key PEM: ${(error as Error).message}`,\n    );',
+    replace: '    return undefined;',
+  },
+
+  // --- M2: directives and lifecycle ---
+  {
+    label: 'protocol: answer a bare 204 instead of a v1 noUpdateAvailable directive',
+    file: S('routes/manifest.ts'),
+    find: "        supportsDirectives\n          ? sendSignedPart(reply, 'directive', noUpdateAvailableDirective(), format, sign)\n          : reply.code(204).send();",
+    replace: '        reply.code(204).send();',
+  },
+  {
+    label: 'protocol: send directives to protocol-0 clients that cannot parse them',
+    file: S('routes/manifest.ts'),
+    find: "        protocolVersion === 1 && negotiateFormat(headers.accept) === 'multipart';",
+    replace: "        negotiateFormat(headers.accept) === 'multipart';",
+  },
+  {
+    label: 'rollback: tell a client already on embedded to roll back anyway',
+    file: S('services/updateResolver.ts'),
+    find: "    return onEmbedded ? { kind: 'noUpdate' } : { kind: 'rollback', commitTime: update.createdAt };",
+    replace: "    return { kind: 'rollback', commitTime: update.createdAt };",
+  },
+  {
+    label: 'lifecycle: rollback ignores the requested platform filter',
+    file: S('services/updateLifecycle.ts'),
+    find: 'const platforms = input.platforms?.length ? input.platforms : [...PLATFORMS];',
+    replace: 'const platforms = [...PLATFORMS];',
+  },
+  {
+    label: 'lifecycle: republish resurrects rollback markers as updates',
+    file: S('services/updateLifecycle.ts'),
+    find: "    .where(and(eq(updates.groupId, groupId), eq(updates.type, 'normal')))",
+    replace: '    .where(eq(updates.groupId, groupId))',
+  },
+  {
+    label: 'lifecycle: disable only affects one row of the group',
+    file: S('services/updateLifecycle.ts'),
+    find: "  db.update(updates).set({ status: 'disabled' }).where(eq(updates.groupId, groupId)).run();",
+    replace:
+      "  db.update(updates).set({ status: 'disabled' }).where(eq(updates.id, rows[0].id)).run();",
+  },
+
+  // --- M2: key generation ---
+  {
+    label: 'keys: overwrite an existing private key instead of refusing',
+    file: C('commands/keys.ts'),
+    find: '    if (existsSync(path)) {',
+    replace: '    if (existsSync(path) && false) {',
+  },
+  {
+    label: 'keys: write the private key world-readable',
+    file: C('commands/keys.ts'),
+    find: 'writeFileSync(privateKeyPath, privateKeyPEM, { mode: 0o600 });',
+    replace: 'writeFileSync(privateKeyPath, privateKeyPEM, { mode: 0o644 });',
   },
 ];
 

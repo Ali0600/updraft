@@ -1,7 +1,7 @@
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { sha256Hex } from '@ota/core';
+import { parseMultipartBody, sha256Hex } from '@ota/core';
 import type { FastifyInstance } from 'fastify';
 import { TEST_PUBLISH_TOKEN } from './testConfig.js';
 
@@ -145,4 +145,54 @@ export function clientHeaders(overrides: Record<string, string> = {}): Record<st
     accept: 'multipart/mixed',
     ...overrides,
   };
+}
+
+export function boundaryOf(contentType: string | undefined): string {
+  const boundary = /boundary=([^;]+)/.exec(contentType ?? '')?.[1];
+  if (!boundary) throw new Error(`no boundary in content-type: ${contentType}`);
+  return boundary;
+}
+
+export interface ParsedPart {
+  name: string | undefined;
+  headers: Record<string, string>;
+  body: string;
+  json: unknown;
+}
+
+/** Parses the single part of a protocol response. */
+export function parseSinglePart(response: {
+  rawPayload: Buffer;
+  headers: Record<string, unknown>;
+}): ParsedPart {
+  const parts = parseMultipartBody(
+    response.rawPayload,
+    boundaryOf(response.headers['content-type'] as string | undefined),
+  );
+  const part = parts[0];
+  if (!part) throw new Error('response contained no multipart parts');
+
+  const body = part.body.toString('utf8');
+  return { name: part.name, headers: part.headers, body, json: JSON.parse(body) };
+}
+
+/**
+ * Asserts the response is a protocol-v1 "nothing to apply" directive.
+ * Returns the part so callers can additionally check its signature.
+ */
+export function expectNoUpdateAvailable(response: {
+  statusCode: number;
+  rawPayload: Buffer;
+  headers: Record<string, unknown>;
+}): ParsedPart {
+  if (response.statusCode !== 200) {
+    throw new Error(`expected 200 with a directive, got ${response.statusCode}`);
+  }
+  const part = parseSinglePart(response);
+  if (part.name !== 'directive') throw new Error(`expected a directive part, got '${part.name}'`);
+  const type = (part.json as { type?: string }).type;
+  if (type !== 'noUpdateAvailable') {
+    throw new Error(`expected noUpdateAvailable, got '${type}'`);
+  }
+  return part;
 }
