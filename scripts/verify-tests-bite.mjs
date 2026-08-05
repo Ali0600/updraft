@@ -301,18 +301,25 @@ function clearCaches() {
   }
 }
 
+// biome-ignore lint/suspicious/noControlCharactersInRegex: matching ANSI escapes requires ESC
+const ANSI = /\[[0-9;]*[A-Za-z]/g;
+const stripAnsi = (text) => text.replace(ANSI, '');
+
 function runTests() {
   // Both streams, always. Vitest puts its summary on stdout locally and on
   // stderr under CI; reading only one made the harness report "baseline is not
   // green" for a suite that had in fact passed. `pnpm exec` rather than `npx`
   // so resolution is the workspace's, not whatever npx decides to fetch.
-  const result = spawnSync('pnpm', ['exec', 'vitest', 'run'], {
+  // The reporter is pinned and colour disabled so the summary line has one
+  // shape everywhere; ANSI is then stripped anyway, because a parser that
+  // depends on the terminal's mood is not a parser.
+  const result = spawnSync('pnpm', ['exec', 'vitest', 'run', '--reporter=default'], {
     cwd: ROOT,
     encoding: 'utf8',
-    env: { ...process.env, CI: 'true' },
+    env: { ...process.env, CI: 'true', NO_COLOR: '1', FORCE_COLOR: '0' },
   });
 
-  const output = `${result.stdout ?? ''}\n${result.stderr ?? ''}`;
+  const output = stripAnsi(`${result.stdout ?? ''}\n${result.stderr ?? ''}`);
   const exitCode = result.status ?? 1;
 
   const line = /Tests\s+(?:(\d+) failed \| )?(\d+) passed(?: \| (\d+) skipped)?\s+\((\d+)\)/.exec(
@@ -349,6 +356,8 @@ console.log(
 );
 if (baseline.exitCode !== 0 || baseline.failed !== 0) {
   console.error('baseline is not green; aborting');
+  // Without this, an unparseable run is indistinguishable from a failing one.
+  if (baseline.raw) console.error(`--- test output ---\n${baseline.raw}`);
   process.exit(1);
 }
 
