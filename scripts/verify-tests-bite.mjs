@@ -13,7 +13,7 @@
 // the pattern against the current source when it happens. Run this after
 // `pnpm lint:fix`, not before.
 
-import { execFileSync } from 'node:child_process';
+import { execFileSync, spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
@@ -302,25 +302,25 @@ function clearCaches() {
 }
 
 function runTests() {
-  let stdout = '';
-  let exitCode = 0;
-  try {
-    stdout = execFileSync('npx', ['vitest', 'run'], {
-      cwd: ROOT,
-      encoding: 'utf8',
-      stdio: ['ignore', 'pipe', 'pipe'],
-      env: { ...process.env, CI: 'true' },
-    });
-  } catch (error) {
-    stdout = `${error.stdout ?? ''}${error.stderr ?? ''}`;
-    exitCode = error.status ?? 1;
-  }
+  // Both streams, always. Vitest puts its summary on stdout locally and on
+  // stderr under CI; reading only one made the harness report "baseline is not
+  // green" for a suite that had in fact passed. `pnpm exec` rather than `npx`
+  // so resolution is the workspace's, not whatever npx decides to fetch.
+  const result = spawnSync('pnpm', ['exec', 'vitest', 'run'], {
+    cwd: ROOT,
+    encoding: 'utf8',
+    env: { ...process.env, CI: 'true' },
+  });
+
+  const output = `${result.stdout ?? ''}\n${result.stderr ?? ''}`;
+  const exitCode = result.status ?? 1;
 
   const line = /Tests\s+(?:(\d+) failed \| )?(\d+) passed(?: \| (\d+) skipped)?\s+\((\d+)\)/.exec(
-    stdout,
+    output,
   );
   if (!line) {
-    return { exitCode, failed: null, passed: null, total: null, raw: stdout.slice(-800) };
+    // Unparseable output is a harness failure, not a silent pass — show it.
+    return { exitCode, failed: null, passed: null, total: null, raw: output.slice(-1500) };
   }
   return {
     exitCode,

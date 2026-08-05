@@ -43,12 +43,17 @@ node "${ROOT}/packages/cli/dist/index.js" keys generate --output "${CERTS}" >/de
 pass "code signing keys generated"
 
 echo "==> starting container on :${PORT}"
+# The key goes in as base64 rather than a bind mount. The container runs as
+# uid 1000 and `keys generate` writes the key 0600 owned by the invoking user:
+# Docker Desktop on macOS maps that so it is readable, Linux does not, and the
+# server correctly refuses to start. Base64 exercises the same signer without
+# depending on host uid mapping. See docs/deployment notes in the README for
+# the bind-mount variant.
 docker run -d --name "${CONTAINER}" -p "${PORT}:3000" \
   -e "PUBLIC_URL=${BASE}" \
   -e "PUBLISH_TOKEN=${TOKEN}" \
-  -e "CODE_SIGNING_PRIVATE_KEY_PATH=/keys/private-key.pem" \
+  -e "CODE_SIGNING_PRIVATE_KEY_BASE64=$(base64 < "${CERTS}/private-key.pem" | tr -d '\n')" \
   -e "CODE_SIGNING_KEY_ID=main" \
-  -v "${CERTS}:/keys:ro" \
   "${IMAGE}" >/dev/null
 
 for _ in $(seq 1 30); do

@@ -155,11 +155,23 @@ Devices can require that an update was signed by your key before applying it.
 node packages/cli/dist/index.js keys generate --output ./certs
 ```
 
-Give the server the private key (`CODE_SIGNING_PRIVATE_KEY_PATH=/keys/private-key.pem`,
-mounted read-only) and embed `certs/certificate.pem` in the app via
+Give the server the private key and embed `certs/certificate.pem` in the app via
 `updates.codeSigningCertificate`, with
 `codeSigningMetadata: { keyid: "main", alg: "rsa-v1_5-sha256" }`. The
 `keys generate` output prints the exact config snippet.
+
+The key reaches the server one of two ways:
+
+- `CODE_SIGNING_PRIVATE_KEY_BASE64` — the key inline. Works everywhere and is
+  the simplest option on hosts that only offer environment variables.
+- `CODE_SIGNING_PRIVATE_KEY_PATH` — a read-only bind mount. **The container
+  runs as uid 1000 (`node`), and `keys generate` writes the key mode 0600 owned
+  by whoever ran it.** On Linux the container then cannot read it and the
+  server refuses to start (by design — see below). Either `chown 1000:1000` the
+  key or use the base64 form. Docker Desktop on macOS maps ownership so this
+  surfaces only on Linux, which is exactly where you deploy.
+
+Setting both is a configuration error rather than a silent precedence rule.
 
 Signing is opt-in per request: clients ask with `expo-expect-signature`. When
 one does, anything that would prevent a correct signature — no key configured,
