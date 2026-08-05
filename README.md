@@ -48,7 +48,13 @@ pnpm install
 pnpm test
 ```
 
-Run the server in Docker:
+Or skip the build and run the published image (linux/amd64 and linux/arm64):
+
+```bash
+docker run -p 3000:3000 -e PUBLIC_URL=http://localhost:3000 -e PUBLISH_TOKEN=$(openssl rand -hex 32) ghcr.io/ali0600/updraft:0.1.0
+```
+
+Run the server from source in Docker:
 
 ```bash
 cp .env.example .env && openssl rand -hex 32

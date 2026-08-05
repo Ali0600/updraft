@@ -44,8 +44,14 @@ interpolation appears inside a `run:` body (a shell-injection vector).
 - *GHCR image push:* **deferred — blocked on a remote.** The image already
   builds and is exercised by both E2E scripts on every run.
 
-**Revisit hook:** the day a GitHub repository exists — add `.github/workflows/release.yml`
-and `docker.yml`, and set `packages/cli/package.json` `name`/`bin`.
+**Revisit hook:** `.github/workflows/release.yml` plus `packages/cli/package.json`
+`name`/`bin`, once an npm account and package name are settled. `docker.yml`
+is done.
+
+One implementation note worth keeping: `docker/metadata-action`'s
+`type=semver,pattern={{version}}` strips the leading `v`, so the tag `v0.1.0`
+publishes the image as `0.1.0`. Pulling `v0.1.0` returns "not found", which
+looks exactly like a private-package permissions error and is not one.
 
 ## Backlog — alternatives worth trying later
 
