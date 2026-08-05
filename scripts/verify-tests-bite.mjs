@@ -330,6 +330,17 @@ function runTests() {
   };
 }
 
+// @ota/core resolves through its package exports (dist), so it must exist
+// before any suite runs. The root `test` script does this, but this harness
+// calls vitest directly to avoid rebuilding core 40+ times — no sabotage
+// touches core, so building it once here is both correct and fast.
+console.log('=== building @ota/core ===');
+execFileSync('pnpm', ['--filter', '@ota/core', 'build'], {
+  cwd: ROOT,
+  stdio: 'inherit',
+  env: { ...process.env, CI: 'true' },
+});
+
 console.log('=== baseline ===');
 clearCaches();
 const baseline = runTests();

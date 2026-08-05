@@ -37,7 +37,7 @@ echo "==> building image"
 docker build -f "${ROOT}/docker/Dockerfile" -t "${IMAGE}" "${ROOT}" >/dev/null
 
 echo "==> generating code signing keys"
-(cd "${ROOT}" && pnpm --filter @ota/cli build >/dev/null 2>&1)
+(cd "${ROOT}" && pnpm --filter '@ota/cli...' build >/dev/null 2>&1)
 node "${ROOT}/packages/cli/dist/index.js" keys generate --output "${CERTS}" >/dev/null
 [ -f "${CERTS}/private-key.pem" ] || fail "keys generate produced no private key"
 pass "code signing keys generated"
@@ -64,7 +64,7 @@ code=$(curl -s -o /dev/null -w '%{http_code}' "${BASE}/api/admin/apps")
 pass "unauthenticated admin request rejected"
 
 echo "==> building the CLI"
-(cd "${ROOT}" && pnpm --filter @ota/cli build >/dev/null 2>&1) || fail "cli build failed"
+(cd "${ROOT}" && pnpm --filter '@ota/cli...' build >/dev/null 2>&1) || fail "cli build failed"
 CLI="${ROOT}/packages/cli/dist/index.js"
 export UPDRAFT_PUBLISH_TOKEN="${TOKEN}"
 

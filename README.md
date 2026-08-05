@@ -37,7 +37,7 @@ S3-backed storage.
 
 ## Quickstart
 
-Requires Node >= 20, pnpm, and Docker.
+Requires Node >= 22.13 (pnpm 11's own floor), pnpm, and Docker.
 
 ```bash
 git clone https://github.com/Ali0600/updraft.git && cd updraft

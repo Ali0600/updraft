@@ -48,7 +48,7 @@ curl -fsS "${BASE}/healthz" >/dev/null || { docker logs "${CONTAINER}"; fail "se
 pass "server up"
 
 echo "==> building the CLI"
-(cd "${ROOT}" && pnpm --filter @ota/cli build >/dev/null 2>&1) || fail "cli build failed"
+(cd "${ROOT}" && pnpm --filter '@ota/cli...' build >/dev/null 2>&1) || fail "cli build failed"
 
 echo "==> creating the app"
 node "${CLI}" apps create --server "${BASE}" --slug example-app --name "Example App" >/dev/null

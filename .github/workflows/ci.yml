@@ -20,9 +20,10 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        # Lowest supported runtime and the dev runtime, so a floor bump that
-        # breaks Node 20 cannot pass on 22 alone.
-        node: ['20', '22']
+        # 22 is the floor (pnpm 11 needs >= 22.13; it imports node:sqlite).
+        # 24 is the newest line, so a future-version break shows up here rather
+        # than on someone's machine.
+        node: ['22', '24']
 
     steps:
       - name: Checkout

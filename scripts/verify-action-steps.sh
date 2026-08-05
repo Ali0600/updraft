@@ -48,7 +48,7 @@ docker run -d --name "${CONTAINER}" -p "${PORT}:3000" \
 for _ in $(seq 1 30); do curl -fsS "${BASE}/healthz" >/dev/null 2>&1 && break; sleep 1; done
 curl -fsS "${BASE}/healthz" >/dev/null || fail "server never became healthy"
 
-(cd "${ROOT}" && pnpm --filter @ota/cli build >/dev/null 2>&1)
+(cd "${ROOT}" && pnpm --filter '@ota/cli...' build >/dev/null 2>&1)
 UPDRAFT_PUBLISH_TOKEN="${TOKEN}" node "${ROOT}/packages/cli/dist/index.js" \
   apps create --server "${BASE}" --slug example-app --name "Example" >/dev/null
 pass "server ready"
