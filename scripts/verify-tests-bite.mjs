@@ -93,6 +93,82 @@ const SABOTAGES = [
     replace: 'url: `/${assetStorageKey(asset.sha256Hex)}`,',
   },
   {
+    label: 'metrics: serve the scrape without a token',
+    file: S('routes/metrics.ts'),
+    find: "  app.addHook('onRequest', requireBearerToken(config.PUBLISH_TOKEN));",
+    replace: '',
+  },
+  {
+    label: 'metrics: label requests with the raw URL instead of the route pattern',
+    file: S('routes/metrics.ts'),
+    // An attacker-controlled label is unbounded series, i.e. remote memory
+    // exhaustion — not a monitoring-hygiene issue.
+    find: "    const route = request.routeOptions.url ?? 'unmatched';",
+    replace: '    const route = request.url;',
+  },
+  {
+    label: 'metrics: label manifests with the raw platform header',
+    file: S('metrics.ts'),
+    // Anchored on the mapper, not on a call site. The call after header
+    // validation is provably a no-op there (the value is already narrowed to
+    // a Platform), so sabotaging it changes nothing; the load-bearing use is
+    // the client-error path, where the raw header arrives unvalidated.
+    find: "  return platform === 'ios' || platform === 'android' ? platform : 'unknown';",
+    replace: "  return (platform ?? 'unknown') as Platform | 'unknown';",
+  },
+  {
+    label: 'readiness: report ready while storage is failing',
+    file: S('services/readiness.ts'),
+    find: '      ready: database && storage,',
+    replace: '      ready: true,',
+  },
+  {
+    label: 'readiness: probe dependencies on every request',
+    file: S('services/readiness.ts'),
+    // Without the cache, an unauthenticated endpoint turns one free HTTP
+    // request into one paid object-store request at any rate a caller likes.
+    find: '    if (cached && now - cached.at < PROBE_TTL_MS) return cached.report;',
+    replace: '    if (false) return cached.report;',
+  },
+  {
+    label: 'readiness: leak dependency error detail to unauthenticated callers',
+    file: S('routes/health.ts'),
+    find: '          checks: report.checks,',
+    replace: '          checks: report.checks,\n          detail: JSON.stringify(report),',
+  },
+  {
+    label: 'healthz: make liveness depend on the object store',
+    file: S('routes/health.ts'),
+    // A liveness probe that fails when S3 is down causes restarts that cannot
+    // possibly help.
+    find: "  app.get('/healthz', async () => ({ status: 'ok' }));",
+    replace:
+      "  app.get('/healthz', async (_r, reply) => {\n    const report = await readiness();\n    return reply.code(report.ready ? 200 : 503).send({ status: 'ok' });\n  });",
+  },
+  {
+    label: 'rate limit: authenticate before limiting, leaving the token unprotected',
+    file: S('routes/admin.ts'),
+    // The ordering bug this milestone actually hit: hooks run in registration
+    // order, so reversing these lets an unauthenticated flood collect 401s
+    // without ever reaching the limiter.
+    find: "  app.addHook('onRequest', rateLimitHook(app, config));\n  app.addHook('onRequest', requireBearerToken(config.PUBLISH_TOKEN));",
+    replace:
+      "  app.addHook('onRequest', requireBearerToken(config.PUBLISH_TOKEN));\n  app.addHook('onRequest', rateLimitHook(app, config));",
+  },
+  {
+    label: 'rate limit: throttle the device paths too',
+    file: S('app.ts'),
+    find: '  await app.register(assetRoutes, { db, storage: instrumented, metrics });',
+    replace:
+      "  await app.register(assetRoutes, { db, storage: instrumented, metrics });\n  app.addHook('onRequest', rateLimitHook(app, config));",
+  },
+  {
+    label: 'admin errors: flatten a rate-limit 429 into a 500',
+    file: S('routes/admin.ts'),
+    find: "    if (typeof status === 'number' && status >= 400 && status < 500) {",
+    replace: '    if (false) {',
+  },
+  {
     label: 'upload: accept any string as a media type',
     file: S('services/publishService.ts'),
     // In direct mode a CDN echoes this value, so an unvalidated one is header

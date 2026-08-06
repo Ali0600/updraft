@@ -3,16 +3,18 @@ import { eq } from 'drizzle-orm';
 import type { FastifyInstance } from 'fastify';
 import type { Db } from '../db/client.js';
 import { assets } from '../db/schema.js';
+import type { Metrics } from '../metrics.js';
 import { assetStorageKey, type BlobStorage } from '../storage/BlobStorage.js';
 
 export interface AssetRoutesOptions {
   db: Db;
   storage: BlobStorage;
+  metrics?: Metrics | undefined;
 }
 
 export async function assetRoutes(
   app: FastifyInstance,
-  { db, storage }: AssetRoutesOptions,
+  { db, storage, metrics }: AssetRoutesOptions,
 ): Promise<void> {
   app.route<{ Params: { hash: string } }>({
     method: ['GET', 'HEAD'],
@@ -48,6 +50,10 @@ export async function assetRoutes(
       if (!data) {
         return reply.code(404).send({ error: 'asset not found' });
       }
+
+      // Payload bytes, not wire bytes — the number that says whether the
+      // proxy path is carrying enough traffic to justify a CDN.
+      metrics?.assetBytesSent.inc(data.length);
 
       return (
         reply

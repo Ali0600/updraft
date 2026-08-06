@@ -13,15 +13,30 @@ import {
 import type { FastifyInstance, FastifyReply } from 'fastify';
 import type { Config } from '../config.js';
 import type { Db } from '../db/client.js';
+import { type ManifestOutcome, type Metrics, platformLabel } from '../metrics.js';
 import { buildManifest } from '../services/manifestBuilder.js';
 import type { Signer } from '../services/signer.js';
-import { resolveUpdate } from '../services/updateResolver.js';
+import { type ResolveOutcome, resolveUpdate } from '../services/updateResolver.js';
 
 export interface ManifestRoutesOptions {
   db: Db;
   config: Config;
   signer?: Signer | undefined;
+  metrics?: Metrics | undefined;
 }
+
+/**
+ * Every resolver outcome mapped to a bounded label. Written as a total record
+ * so a new outcome kind fails to compile until someone decides its label.
+ */
+const OUTCOME_LABELS: Record<ResolveOutcome['kind'], ManifestOutcome> = {
+  appNotFound: 'app_not_found',
+  channelNotFound: 'channel_not_found',
+  noUpdate: 'no_update',
+  upToDate: 'up_to_date',
+  rollback: 'rollback',
+  manifest: 'manifest',
+};
 
 /** Returns an `expo-signature` value for the exact bytes, or undefined when unsigned. */
 type SignFn = (bytes: string) => string;
@@ -82,7 +97,7 @@ function sendSignedPart(
 
 export async function manifestRoutes(
   app: FastifyInstance,
-  { db, config, signer }: ManifestRoutesOptions,
+  { db, config, signer, metrics }: ManifestRoutesOptions,
 ): Promise<void> {
   app.get<{ Params: { appSlug: string }; Querystring: { channel?: string } }>(
     '/api/manifest/:appSlug',
@@ -101,17 +116,32 @@ export async function manifestRoutes(
         protocolVersion === 1 && negotiateFormat(headers.accept) === 'multipart';
 
       const platform = headers['expo-platform'];
+      /**
+       * Rejected requests are counted too, and this is the path that makes
+       * platformLabel load-bearing: the raw header reaches here unvalidated,
+       * so using it directly would let anyone mint unbounded series.
+       */
+      const countClientError = (): void => {
+        metrics?.manifestOutcomes.inc({
+          platform: platformLabel(typeof platform === 'string' ? platform : undefined),
+          outcome: 'client_error',
+        });
+      };
+
       if (typeof platform !== 'string' || !PLATFORMS.includes(platform as Platform)) {
+        countClientError();
         return reply.code(400).send({ error: 'expo-platform must be ios or android' });
       }
 
       const runtimeVersion = headers['expo-runtime-version'];
       if (typeof runtimeVersion !== 'string' || runtimeVersion.length === 0) {
+        countClientError();
         return reply.code(400).send({ error: 'expo-runtime-version is required' });
       }
 
       const format = negotiateFormat(headers.accept);
       if (!format) {
+        countClientError();
         return reply.code(406).send({ error: 'accept must allow multipart/mixed or expo+json' });
       }
 
@@ -163,6 +193,14 @@ export async function manifestRoutes(
         supportsDirectives
           ? sendSignedPart(reply, 'directive', noUpdateAvailableDirective(), format, sign)
           : reply.code(204).send();
+
+      // Both labels are drawn from closed sets: the platform is mapped
+      // through platformLabel rather than taken from the header, and the
+      // outcome comes from the resolver's own union.
+      metrics?.manifestOutcomes.inc({
+        platform: platformLabel(platform),
+        outcome: OUTCOME_LABELS[outcome.kind],
+      });
 
       switch (outcome.kind) {
         case 'appNotFound':

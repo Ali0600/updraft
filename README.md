@@ -23,8 +23,10 @@ code signing enforced. See [docs/protocol-notes.md](docs/protocol-notes.md)
 for what the real client confirmed and [docs/e2e-testing.md](docs/e2e-testing.md)
 for how to reproduce it.
 
-Not yet exercised: Android, physical devices (which need HTTPS), and
-S3-backed storage.
+Blobs can live on disk or in any S3-compatible store, with optional CDN
+delivery. All planned milestones are complete.
+
+Not yet exercised: Android, and physical devices (which need HTTPS).
 
 | Milestone | Scope | State |
 | --- | --- | --- |
@@ -33,7 +35,7 @@ S3-backed storage.
 | M2 | Code signing, channels, rollback | done |
 | M3 | Publishing CLI + GitHub Action | done |
 | M5 | Verified against a real `expo-updates` client | done |
-| M4 | S3 storage + observability | planned |
+| M4 | S3 storage, CDN delivery, metrics, readiness, rate limits | done |
 
 ## Quickstart
 
@@ -254,6 +256,32 @@ The server keeps serving assets itself even when this is set. Devices already
 hold manifests addressed to `PUBLIC_URL`, and disabling the proxy would break
 every update currently downloading.
 
+## Operations
+
+`/healthz` reports that the process is alive and never touches a dependency —
+it backs the container `HEALTHCHECK`, and restarting cannot fix an unreachable
+database or bucket. `/readyz` probes both and answers 503 when either is
+down, which is what a load balancer should watch.
+
+`/metrics` serves Prometheus text **behind the publish token**, because
+operational data should not be world-readable on an internet-facing server:
+
+```bash
+curl -H "Authorization: Bearer $UPDRAFT_PUBLISH_TOKEN" http://localhost:3000/metrics
+```
+
+Label sets are deliberately bounded. App slugs, channels, runtime versions and
+client addresses are never used as labels — several come straight from request
+input, and a label taken from request input lets anyone create unbounded time
+series until the process runs out of memory.
+
+Admin and metrics routes are rate limited (600/minute by default). The device
+paths are not: a release wave has every client checking in at once, and
+answering that with 429s would be a self-inflicted outage.
+
+Full deployment guide, including TLS, bucket policies and backups:
+[docs/deployment.md](docs/deployment.md).
+
 ## Development
 
 ```bash
@@ -327,6 +355,17 @@ publish uploads nothing. Requires `npm install` in `example-app/` first.
 - Demonstrated that code signing genuinely rejects tampered releases by
   serving an update signed with a mismatched key and confirming the device
   refused it — testing the negative case, not only the happy path.
+- Built a pluggable object-storage layer for S3, MinIO, R2 and B2, tested
+  against a real MinIO in CI rather than a mock — which caught a fault where a
+  mistyped bucket name would have surfaced as an empty store on an
+  apparently healthy server.
+- Instrumented the service with Prometheus metrics under a deliberate
+  cardinality budget, treating labels derived from request input as a
+  memory-exhaustion vector rather than a style question.
+- Designed liveness and readiness probes around their failure modes: liveness
+  stays dependency-free so outages cannot trigger restart loops, and the
+  unauthenticated readiness probe is cached and single-flighted so it cannot
+  be used to amplify load against paid backing services.
 
 ## Prior art
 

@@ -3,6 +3,57 @@
 Design forks with real alternatives, recorded as they were decided. Rejected
 options are kept because the reasoning behind them is worth revisiting.
 
+## D14 — Who may read /metrics (2026-08-06)
+
+**Fork:** metrics expose app slugs, publish counts and error rates, and this
+server is internet-facing.
+
+| Option | Tradeoff |
+| --- | --- |
+| Public | What most self-hosted apps do and simplest to scrape; operational data is world-readable |
+| Behind the publish token | Secure by default; Prometheus needs one line of config |
+| A separate port | Clean separation, but a second listener to run and document |
+| A separate `METRICS_TOKEN` | Prometheus would not hold a credential that can also publish updates |
+
+**Chosen:** the publish token. One credential to manage, and the scrape config
+cost is a single `authorization` block.
+
+**Status of rejected options:** separate `METRICS_TOKEN` — `deferred — worth
+trying`; the blast-radius argument is real (a compromised monitoring host
+currently gains publish rights), it simply was not worth a second variable yet.
+Public — `rejected — leaks operational data`. Separate port — `deferred`.
+
+**Revisit hook:** `packages/server/src/routes/metrics.ts` plus the config
+schema.
+
+## D15 — Where the rate limiter sits relative to authentication (2026-08-06)
+
+**Fork:** `@fastify/rate-limit` can attach globally, per route, or as an
+explicit hook.
+
+| Option | Tradeoff |
+| --- | --- |
+| `global: true` | One line, and **wrong here** |
+| Per-route config | Same problem, expressed per route |
+| Explicit hook, registered before auth | Verbose, and the only ordering that protects the token |
+
+**Chosen:** the explicit hook. This was measured, not reasoned about: with
+`global: true` the plugin attaches per *route*, and Fastify runs route hooks
+**after** scope hooks. The admin scope's bearer check is a scope hook, so a
+flood of unauthenticated requests collected 401s and never reached the limiter
+— leaving the token exactly as exposed as with no limiter at all. The test
+asserting "the third unauthenticated request is 429, not 401" is what caught
+it, and it is now a sabotage.
+
+The same investigation found the admin error handler flattening the limiter's
+429 into a 500. Errors carrying a client-error status now keep it.
+
+**Status of rejected options:** `global: true` — `rejected — runs after
+authentication`.
+
+**Revisit hook:** `packages/server/src/plugins/rateLimit.ts`, and the hook
+order at the top of `routes/admin.ts`.
+
 ## D13 — How devices fetch asset bytes (2026-08-06)
 
 **Fork:** with object storage available, assets could be served by this server
