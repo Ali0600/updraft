@@ -87,8 +87,32 @@ const SABOTAGES = [
   {
     label: 'manifestBuilder: emit relative asset URLs',
     file: S('services/manifestBuilder.ts'),
-    find: 'url: `${publicUrl}/assets/${asset.sha256Hex}`,',
-    replace: 'url: `/assets/${asset.sha256Hex}`,',
+    // Re-anchored in M4: the base became configurable and the path is now
+    // derived from the storage key.
+    find: 'url: `${base}/${assetStorageKey(asset.sha256Hex)}`,',
+    replace: 'url: `/${assetStorageKey(asset.sha256Hex)}`,',
+  },
+  {
+    label: 'upload: accept any string as a media type',
+    file: S('services/publishService.ts'),
+    // In direct mode a CDN echoes this value, so an unvalidated one is header
+    // injection into a response we do not control.
+    find: '  if (!MEDIA_TYPE.test(trimmed)) {',
+    replace: '  if (false) {',
+  },
+  {
+    label: 'delivery: ignore ASSETS_BASE_URL and keep addressing ourselves',
+    file: S('services/manifestBuilder.ts'),
+    find: '  const base = assetsBaseUrl ?? publicUrl;',
+    replace: '  const base = publicUrl;',
+  },
+  {
+    label: 'delivery: address assets at a path that is not the storage key',
+    file: S('services/manifestBuilder.ts'),
+    // The invariant direct delivery rests on: the URL path and the object key
+    // must be the same string, or a CDN resolves nothing.
+    find: 'url: `${base}/${assetStorageKey(asset.sha256Hex)}`,',
+    replace: 'url: `${base}/${asset.sha256Hex}`,',
   },
   {
     label: 'assets: drop the SHA-256 hash guard',

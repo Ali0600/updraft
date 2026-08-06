@@ -1,6 +1,7 @@
 import { sha256Hex } from '@ota/core';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { assets } from '../src/db/schema.js';
+import { createFakeStorage } from './helpers/fakeStorage.js';
 import {
   auth,
   BUNDLE,
@@ -154,6 +155,60 @@ describe('admin API — publishing', () => {
 
     expect(response.statusCode).toBe(400);
     expect(response.json().error).toMatch(/does not match/);
+  });
+
+  it.each([
+    ['a header injection attempt', 'text/plain\r\nX-Injected: yes'],
+    ['a value that is not a media type', 'not-a-media-type'],
+    ['an empty type', '/plain'],
+  ])('rejects %s in the content-type header', async (_label, value) => {
+    // In direct-delivery mode this value is echoed by a CDN we do not
+    // control, so an unvalidated one is header injection into someone else's
+    // response. Rejecting beats substituting a default: a malformed value
+    // means a broken client, and silently storing something else is how the
+    // two delivery modes drift apart.
+    const response = await harness.app.inject({
+      method: 'PUT',
+      url: `/api/admin/assets/${BUNDLE.sha256Hex}`,
+      headers: {
+        ...auth,
+        'content-type': 'application/octet-stream',
+        'x-updraft-content-type': value,
+      },
+      payload: BUNDLE.bytes,
+    });
+
+    expect(response.statusCode).toBe(400);
+    expect(response.json().error).toMatch(/media type/);
+  });
+
+  it('passes the media type through to the storage driver', async () => {
+    // Asserted at the driver boundary rather than by reading it back: the
+    // local filesystem has nowhere to record a content type (it comes from
+    // the assets row when this server serves the bytes), while S3 stores it
+    // on the object. Only the driver call is common to both.
+    const storage = createFakeStorage();
+    const app = await createTestApp({}, () => storage);
+    try {
+      const response = await app.app.inject({
+        method: 'PUT',
+        url: `/api/admin/assets/${BUNDLE.sha256Hex}`,
+        headers: {
+          ...auth,
+          'content-type': 'application/octet-stream',
+          'x-updraft-content-type': 'application/javascript; charset=utf-8',
+        },
+        payload: BUNDLE.bytes,
+      });
+
+      expect(response.statusCode).toBe(201);
+      // Parameters are dropped; only the media type is kept.
+      expect(storage.blobs.get(`assets/${BUNDLE.sha256Hex}`)?.contentType).toBe(
+        'application/javascript',
+      );
+    } finally {
+      await app.close();
+    }
   });
 
   it('refuses to create an update referencing an asset that was never uploaded', async () => {

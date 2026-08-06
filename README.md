@@ -236,6 +236,24 @@ object with `403` instead of `404`, which this server correctly treats as a
 failure rather than an absence — so the symptom is publishing that errors
 instead of deduplicating.
 
+### Serving assets from a CDN
+
+By default the server proxies every asset download. Set `ASSETS_BASE_URL` to
+have new manifests address assets at a CDN or the bucket directly:
+
+```bash
+ASSETS_BASE_URL=https://cdn.example.com
+```
+
+The URL path is the object's storage key, so `assets/<sha256>` must resolve at
+that origin — point the CDN at the same bucket the server writes to. Assets are
+content-addressed and immutable, which is what makes them safe to cache
+forever.
+
+The server keeps serving assets itself even when this is set. Devices already
+hold manifests addressed to `PUBLIC_URL`, and disabling the proxy would break
+every update currently downloading.
+
 ## Development
 
 ```bash

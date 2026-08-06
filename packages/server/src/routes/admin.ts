@@ -11,6 +11,7 @@ import {
   createUpdate,
   missingAssetHashes,
   PublishError,
+  parseContentTypeHeader,
   storeAsset,
 } from '../services/publishService.js';
 import {
@@ -118,7 +119,12 @@ export async function adminRoutes(
       if (!Buffer.isBuffer(request.body)) {
         return reply.code(415).send({ error: 'send the asset as application/octet-stream' });
       }
-      await storeAsset(storage, request.params.hash, request.body);
+      // The real media type only arrives later with the update, but the CDN
+      // in direct-delivery mode serves whatever the object was stored as.
+      const contentType = parseContentTypeHeader(
+        request.headers['x-updraft-content-type'] as string | undefined,
+      );
+      await storeAsset(storage, request.params.hash, request.body, contentType);
       return reply.code(201).send({ sha256Hex: request.params.hash, size: request.body.length });
     },
   );

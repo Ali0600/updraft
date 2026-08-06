@@ -65,7 +65,7 @@ async function uploadMissing(
     for (let hash = queue.shift(); hash !== undefined; hash = queue.shift()) {
       const file = plan.files.get(hash);
       if (!file) throw new Error(`plan lists ${hash} but no file carries it`);
-      await api.uploadAsset(hash, file.bytes);
+      await api.uploadAsset(hash, file.bytes, file.contentType);
       uploadedBytes += file.sizeBytes;
       log(`  uploaded ${file.path} (${formatBytes(file.sizeBytes)})`);
     }

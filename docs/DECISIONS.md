@@ -3,6 +3,37 @@
 Design forks with real alternatives, recorded as they were decided. Rejected
 options are kept because the reasoning behind them is worth revisiting.
 
+## D13 — How devices fetch asset bytes (2026-08-06)
+
+**Fork:** with object storage available, assets could be served by this server
+or fetched straight from the bucket/CDN.
+
+| Option | Tradeoff |
+| --- | --- |
+| Always proxy | Bucket stays private and nothing about the protocol changes, but every byte is server bandwidth |
+| Always direct | Scales, and is what EAS does, but requires a publicly readable bucket |
+| Presigned URLs | Keeps the bucket private while serving directly |
+| Both, proxy by default | Two paths to keep correct, and the URL must mean the same thing in each |
+
+**Chosen:** both — proxy unless `ASSETS_BASE_URL` is set. The risk in having
+two paths is that they drift, so the manifest URL is now *derived from the
+storage key* (`${base}/${assetStorageKey(hex)}`) rather than written out
+separately. They agreed by coincidence before; they agree by construction now,
+with a test and a sabotage pinning it.
+
+**The proxy stays enabled in direct mode.** Devices in the field hold manifests
+addressed to `PUBLIC_URL`; turning the proxy off would break every update
+mid-download. `ASSETS_BASE_URL` changes what *new* manifests say and nothing
+else.
+
+**Status of rejected options:** presigned URLs — `rejected — incompatible with
+this design`: an expiring per-request URL cannot be cached immutably, and it
+would sit inside a *signed* manifest that outlives the signature's validity.
+Always-direct — `rejected — forces a public bucket on every deployment`.
+
+**Revisit hook:** `toManifestAsset` in
+`packages/server/src/services/manifestBuilder.ts`.
+
 ## D11 — S3 driver: SDK or hand-rolled SigV4 (2026-08-05)
 
 **Fork:** M4 needs an S3-compatible storage driver. The API surface actually

@@ -95,7 +95,13 @@ export async function publishFixture(
     const upload = await app.inject({
       method: 'PUT',
       url: `/api/admin/assets/${file.sha256Hex}`,
-      headers: { ...auth, 'content-type': 'application/octet-stream' },
+      headers: {
+        ...auth,
+        'content-type': 'application/octet-stream',
+        // Mirrors what the real CLI sends, so tests exercise the path that
+        // actually runs in production rather than a simplified one.
+        'x-updraft-content-type': file.contentType,
+      },
       payload: file.bytes,
     });
     if (upload.statusCode !== 201) {

@@ -97,6 +97,32 @@ jobs:
             exit 1
           fi
 
+  s3-e2e:
+    name: s3 storage and direct delivery
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6.0.10
+
+      - name: Setup Node
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: '22'
+          cache: pnpm
+
+      - name: Install
+        run: pnpm install --frozen-lockfile
+
+      # Runs the container against a real MinIO with direct delivery enabled,
+      # then fetches the same asset from the bucket and through the proxy and
+      # requires them to be identical. The in-process suite drives the driver
+      # directly; only this proves the container wires it from real config.
+      - name: End-to-end with S3 storage
+        run: ./scripts/e2e-s3.sh
+
   real-export:
     name: publish a real metro export
     runs-on: ubuntu-latest
