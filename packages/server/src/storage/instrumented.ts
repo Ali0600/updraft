@@ -1,5 +1,5 @@
 import type { Metrics, StorageOperation } from '../metrics.js';
-import type { BlobStat, BlobStorage, PutOptions } from './BlobStorage.js';
+import type { BlobReadStream, BlobStat, BlobStorage, PutOptions } from './BlobStorage.js';
 
 /**
  * Wraps any driver with metrics, so instrumentation lives in one place rather
@@ -47,6 +47,14 @@ export function instrumentedStorage(storage: BlobStorage, metrics: Metrics): Blo
       observe(
         'get',
         () => storage.get(key),
+        (value) => value === undefined,
+      ),
+    getStream: (key: string): Promise<BlobReadStream | undefined> =>
+      // Timed at open, not at drain: the metric records how long the store
+      // took to hand back a body, which is the operation this driver performs.
+      observe(
+        'get',
+        () => storage.getStream(key),
         (value) => value === undefined,
       ),
     put: (key: string, data: Buffer, options?: PutOptions): Promise<void> =>

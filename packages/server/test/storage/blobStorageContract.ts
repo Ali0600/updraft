@@ -50,6 +50,22 @@ export function runBlobStorageContract(
       expect(await storage.get(key())).toBeUndefined();
       expect(await storage.stat(key())).toBeUndefined();
       expect(await storage.has(key())).toBe(false);
+      expect(await storage.getStream(key())).toBeUndefined();
+    });
+
+    it('streams the stored bytes with the right size', async () => {
+      const { storage, key } = await createHarness();
+      const k = key();
+      // Larger than one read chunk, so a broken stream truncates observably.
+      const big = Buffer.alloc(1024 * 512, 0xcd);
+      await storage.put(k, big);
+
+      const result = await storage.getStream(k);
+      expect(result?.size).toBe(big.length);
+
+      const chunks: Buffer[] = [];
+      for await (const chunk of result?.stream ?? []) chunks.push(chunk as Buffer);
+      expect(Buffer.concat(chunks).equals(big)).toBe(true);
     });
 
     it('stat reports the stored size without transferring the blob', async () => {

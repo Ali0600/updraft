@@ -1,3 +1,4 @@
+import type { Readable } from 'node:stream';
 import {
   GetObjectCommand,
   type GetObjectCommandOutput,
@@ -6,7 +7,7 @@ import {
   S3Client,
   type S3ClientConfig,
 } from '@aws-sdk/client-s3';
-import type { BlobStat, BlobStorage, PutOptions } from './BlobStorage.js';
+import type { BlobReadStream, BlobStat, BlobStorage, PutOptions } from './BlobStorage.js';
 
 export interface S3StorageOptions {
   bucket: string;
@@ -120,6 +121,28 @@ export class S3Storage implements BlobStorage {
     // Consume immediately. An unread stream holds its socket open, and doing
     // this first leaves no path where a later throw could strand one.
     return Buffer.from(await response.Body.transformToByteArray());
+  }
+
+  async getStream(key: string): Promise<BlobReadStream | undefined> {
+    let response: GetObjectCommandOutput;
+    try {
+      response = await this.client.send(new GetObjectCommand({ Bucket: this.bucket, Key: key }));
+    } catch (error) {
+      if (isNotFound(error)) return undefined;
+      throw error;
+    }
+
+    // Unlike get(), the body is handed to the caller unread: the asset route
+    // pipes it to the HTTP response, and Fastify consumes it or destroys it on
+    // client abort, so the socket is never stranded. An absent body is an SDK
+    // anomaly, not an absent key.
+    if (!response.Body) throw new Error(`S3 returned no body for ${key}`);
+
+    return {
+      stream: response.Body as Readable,
+      size: response.ContentLength ?? 0,
+      ...(response.ContentType ? { contentType: response.ContentType } : {}),
+    };
   }
 
   destroy(): void {

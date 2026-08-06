@@ -1,7 +1,8 @@
 import { randomBytes } from 'node:crypto';
+import { createReadStream } from 'node:fs';
 import { mkdir, readFile, rename, stat, writeFile } from 'node:fs/promises';
 import { dirname, join, resolve, sep } from 'node:path';
-import type { BlobStat, BlobStorage } from './BlobStorage.js';
+import type { BlobReadStream, BlobStat, BlobStorage } from './BlobStorage.js';
 
 export class LocalFsStorage implements BlobStorage {
   private readonly root: string;
@@ -39,6 +40,22 @@ export class LocalFsStorage implements BlobStorage {
 
   async get(key: string): Promise<Buffer | undefined> {
     return this.read(key);
+  }
+
+  async getStream(key: string): Promise<BlobReadStream | undefined> {
+    const path = this.resolveKey(key);
+    // Stat first: it yields the size and turns an absent file into `undefined`
+    // rather than a stream that errors asynchronously. A delete between here
+    // and the open is a negligible race for immutable content-addressed blobs;
+    // the stream would surface it as an error to the response.
+    let size: number;
+    try {
+      size = (await stat(path)).size;
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === 'ENOENT') return undefined;
+      throw error;
+    }
+    return { stream: createReadStream(path), size };
   }
 
   private async read(key: string): Promise<Buffer | undefined> {

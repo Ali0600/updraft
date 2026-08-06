@@ -1,3 +1,5 @@
+import type { Readable } from 'node:stream';
+
 /**
  * Blob storage for update assets.
  *
@@ -18,6 +20,13 @@ export interface PutOptions {
   contentType?: string | undefined;
 }
 
+export interface BlobReadStream {
+  /** Consumed by the caller (or destroyed on client abort); never left dangling. */
+  stream: Readable;
+  size: number;
+  contentType?: string | undefined;
+}
+
 export interface BlobStorage {
   /**
    * Metadata without transferring the blob. Resolves undefined when the key is
@@ -29,6 +38,13 @@ export interface BlobStorage {
   put(key: string, data: Buffer, options?: PutOptions): Promise<void>;
   /** Resolves undefined when the key is absent, rather than throwing. */
   get(key: string): Promise<Buffer | undefined>;
+  /**
+   * A readable stream of the blob, so a large asset is never fully buffered in
+   * memory to be served. Resolves undefined when the key is absent. The asset
+   * route (unauthenticated, unbounded) uses this; `get` stays for callers that
+   * genuinely need the bytes in hand (the readiness probe, tests).
+   */
+  getStream(key: string): Promise<BlobReadStream | undefined>;
 }
 
 /** The one place a hash becomes a storage key. */

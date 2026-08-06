@@ -3,6 +3,25 @@
 Design forks with real alternatives, recorded as they were decided. Rejected
 options are kept because the reasoning behind them is worth revisiting.
 
+## D19 — Stream asset responses instead of buffering them (2026-08-06)
+
+**Fork:** the asset route read the whole blob into a Buffer before sending. On
+an unauthenticated, unrate-limited route, memory scales with (concurrent
+requests × asset size) — a resource-exhaustion vector (audit finding 3).
+
+**Chosen:** add `getStream` to `BlobStorage` and pipe the stream. `get` stays
+for callers that genuinely need the bytes in hand (the readiness probe, the
+contract tests). Local FS uses `createReadStream`; S3 hands the SDK body
+stream straight to Fastify, which consumes it or destroys it on client abort,
+so no socket leaks.
+
+Because a streamed and a buffered response are byte-identical, the durable
+guard is a **calls-spy test** — the route must read via `getStream`, never
+`get` — mirroring the earlier HEAD-uses-`stat` test. Verified additionally
+over a real socket (not just `inject`) that content-length framing is correct.
+
+**Revisit hook:** `BlobStorage.getStream` and the asset GET handler.
+
 ## D16 — Verify the image before publishing it (2026-08-06)
 
 **Fork:** the release workflow built and pushed in one step, then ran a

@@ -219,6 +219,21 @@ carry a client-error status — they come from the framework or a plugin and
 their messages are safe. Reserve the generic 500 for genuinely unexpected
 failures, or you will hide the very guards you added.
 
+## A property that leaves no trace in the output needs a structural test
+
+Streaming an asset instead of buffering it produces byte-identical responses —
+nothing an assertion on the body can distinguish. The memory-safety property is
+real but invisible to output. The guard is a **calls-spy**: the route must read
+via `getStream`, never the buffering `get`, asserted on an injected fake that
+records which method was called. Same shape as the signature-cache guard (a
+call-count test) and the HEAD-uses-`stat` guard.
+
+**Takeaway:** when a fix changes *how* work is done but not *what* is produced
+(streaming vs buffering, caching vs recomputing, one query vs N), the durable
+test observes the mechanism — spy the call, count the invocations — because no
+assertion on the result can. Pair it with one real-environment check (here, a
+real socket to confirm content-length framing) that inject/mocks can't exercise.
+
 ## A valid media type is not a safe one — neuter the response, don't just validate
 
 The audit's suggested fix for "an asset can be served as `text/html` and run as
