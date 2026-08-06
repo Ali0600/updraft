@@ -74,8 +74,18 @@ export class AdminApi {
     return (await this.request('POST', '/api/admin/assets/check', { hashes })).missing;
   }
 
-  async uploadAsset(sha256Hex: string, bytes: Buffer): Promise<void> {
-    await this.request('PUT', `/api/admin/assets/${sha256Hex}`, bytes);
+  /**
+   * The media type is sent alongside the bytes so the stored object carries
+   * it. In direct-delivery mode a CDN serves the object's own content type,
+   * and nothing later in the pipeline can supply one.
+   */
+  async uploadAsset(sha256Hex: string, bytes: Buffer, contentType?: string): Promise<void> {
+    await this.request(
+      'PUT',
+      `/api/admin/assets/${sha256Hex}`,
+      bytes,
+      contentType ? { 'x-updraft-content-type': contentType } : {},
+    );
   }
 
   async createUpdate(payload: CreateUpdatePayload): Promise<UpdateSummary> {
@@ -111,7 +121,12 @@ export class AdminApi {
   }
 
   // biome-ignore lint/suspicious/noExplicitAny: response shapes are asserted by callers
-  private async request(method: string, path: string, body?: unknown): Promise<any> {
+  private async request(
+    method: string,
+    path: string,
+    body?: unknown,
+    extraHeaders: Record<string, string> = {},
+  ): Promise<any> {
     const isBuffer = Buffer.isBuffer(body);
     const init: RequestInit = {
       method,
@@ -120,6 +135,7 @@ export class AdminApi {
         ...(body === undefined
           ? {}
           : { 'content-type': isBuffer ? 'application/octet-stream' : 'application/json' }),
+        ...extraHeaders,
       },
     };
     if (body !== undefined) {

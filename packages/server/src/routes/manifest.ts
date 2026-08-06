@@ -181,7 +181,11 @@ export async function manifestRoutes(
             return sendSignedPart(
               reply,
               'manifest',
-              buildManifest({ ...outcome, publicUrl: config.PUBLIC_URL }),
+              buildManifest({
+                ...outcome,
+                publicUrl: config.PUBLIC_URL,
+                assetsBaseUrl: config.ASSETS_BASE_URL,
+              }),
               format,
               sign,
             );
@@ -210,7 +214,11 @@ export async function manifestRoutes(
           return sendSignedPart(
             reply,
             'manifest',
-            buildManifest({ ...outcome, publicUrl: config.PUBLIC_URL }),
+            buildManifest({
+              ...outcome,
+              publicUrl: config.PUBLIC_URL,
+              assetsBaseUrl: config.ASSETS_BASE_URL,
+            }),
             format,
             sign,
           );

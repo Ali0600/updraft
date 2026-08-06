@@ -87,6 +87,7 @@ export async function storeAsset(
   storage: BlobStorage,
   claimedHash: string,
   data: Buffer,
+  contentType?: string | undefined,
 ): Promise<void> {
   if (!isSha256Hex(claimedHash)) {
     throw new PublishError(`'${claimedHash}' is not a SHA-256 hex digest`, 400);
@@ -97,7 +98,30 @@ export async function storeAsset(
     throw new PublishError(`content hash ${actual} does not match ${claimedHash}`, 400);
   }
 
-  await storage.put(assetStorageKey(claimedHash), data);
+  await storage.put(assetStorageKey(claimedHash), data, {
+    ...(contentType ? { contentType } : {}),
+  });
+}
+
+/**
+ * A media type this server is willing to store and later echo back.
+ *
+ * Deliberately strict: in direct-delivery mode this value is served as a
+ * response header by a CDN we do not control, so an unvalidated one is header
+ * injection into someone else's response. Rejecting is right rather than
+ * silently substituting a default — a malformed value means a broken client,
+ * and quietly storing something else is how the two delivery modes drift.
+ */
+const MEDIA_TYPE = /^[a-z0-9][a-z0-9!#$&^_.+-]{0,62}\/[a-z0-9][a-z0-9!#$&^_.+-]{0,62}$/i;
+
+export function parseContentTypeHeader(value: string | undefined): string | undefined {
+  if (value === undefined) return undefined;
+  const [type] = value.split(';');
+  const trimmed = type?.trim() ?? '';
+  if (!MEDIA_TYPE.test(trimmed)) {
+    throw new PublishError(`'${value}' is not a valid media type`, 400);
+  }
+  return trimmed.toLowerCase();
 }
 
 export async function createUpdate(
