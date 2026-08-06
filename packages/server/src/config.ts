@@ -45,6 +45,21 @@ const configSchema = z.object({
   ASSETS_BASE_URL: originUrl().optional(),
 
   /**
+   * Fastify's proxy trust. Unset means "do not trust", which is the
+   * fail-closed direction: the rate limiter then keys on the proxy's address
+   * and over-limits, rather than letting anyone spoof X-Forwarded-For to get
+   * unlimited attempts. Set it only when actually behind a reverse proxy.
+   */
+  TRUST_PROXY: z.string().min(1).optional(),
+  /**
+   * Applies to admin and metrics routes only. A real Metro export uploads
+   * tens of assets, so this never troubles a legitimate publish while still
+   * bounding a runaway loop or a token brute-force.
+   */
+  RATE_LIMIT_ADMIN_MAX: z.coerce.number().int().min(1).default(600),
+  RATE_LIMIT_WINDOW_SECONDS: z.coerce.number().int().min(1).default(60),
+
+  /**
    * Bearer token for every admin/publish route. Required with a real length
    * floor: a short token here is the whole authentication story.
    */

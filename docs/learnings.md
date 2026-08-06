@@ -186,6 +186,39 @@ and macOS will not tell you when it isn't. Prefer passing secrets through the
 environment where ownership is awkward, keep the restrictive mode, and document
 the uid requirement for the mount path.
 
+## Hook order decides whether a rate limiter protects a credential
+
+`@fastify/rate-limit` with `global: true` attaches itself per *route*, and
+Fastify runs route-level hooks **after** scope-level ones. The admin scope's
+bearer check is a scope hook, so the limiter ran second: a flood of
+unauthenticated requests collected 401s and never reached it. The token was
+exactly as exposed as with no limiter at all, while the code read as protected.
+
+Registering the limiter as an explicit hook *before* the auth hook, inside the
+same scope, fixes it — hooks in a scope run in registration order.
+
+**Why it came up:** the test asserted the specific thing that distinguishes the
+two orderings — "the third *unauthenticated* request is 429, not 401". A test
+that only checked "authenticated requests eventually 429" would have passed
+against the broken version.
+
+**Takeaway:** when two middlewares must run in a particular order, assert the
+order through an observable that differs between them, not that each works
+alone. For anything protecting a credential, the meaningful test drives the
+*unauthenticated* path.
+
+## An error handler that flattens statuses hides your own guards
+
+The same investigation found admin requests returning **500** once the limiter
+fired. The scope's error handler mapped anything that was not a known
+application error to a generic 500 — including the framework's own 429. The
+limiter was working; its answer was being destroyed on the way out.
+
+**Takeaway:** a catch-all error handler should preserve errors that already
+carry a client-error status — they come from the framework or a plugin and
+their messages are safe. Reserve the generic 500 for genuinely unexpected
+failures, or you will hide the very guards you added.
+
 ## "Not found" from a remote store may not mean what you assume
 
 The S3 driver's whole job is translating errors into the interface's

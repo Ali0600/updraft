@@ -6,6 +6,7 @@ import type { Config } from '../config.js';
 import type { Db } from '../db/client.js';
 import { apps, channels, updates } from '../db/schema.js';
 import { requireBearerToken } from '../plugins/auth.js';
+import { rateLimitHook } from '../plugins/rateLimit.js';
 import {
   createApp,
   createUpdate,
@@ -81,6 +82,11 @@ export async function adminRoutes(
 ): Promise<void> {
   // Applies to every route in this plugin's scope, so a new admin route cannot
   // be added unauthenticated by accident.
+  // Registered first, so the limiter runs ahead of authentication: hooks in a
+  // scope run in registration order. Reversed, a flood of unauthenticated
+  // requests would collect 401s and never reach the limiter, leaving the token
+  // no better protected than with no limiter at all.
+  app.addHook('onRequest', rateLimitHook(app, config));
   app.addHook('onRequest', requireBearerToken(config.PUBLISH_TOKEN));
 
   // Asset uploads arrive as a raw body; keep the bytes untouched.
@@ -93,6 +99,14 @@ export async function adminRoutes(
   app.setErrorHandler(async (error, request, reply) => {
     if (error instanceof PublishError) {
       return reply.code(error.statusCode).send({ error: error.message });
+    }
+    // Errors that already carry a client-error status came from the framework
+    // or a plugin — rate limiting, body limits, malformed requests — and their
+    // messages are safe. Flattening them to 500 hid a 429 behind an
+    // "internal server error", which is both wrong and unactionable.
+    const status = (error as { statusCode?: unknown }).statusCode;
+    if (typeof status === 'number' && status >= 400 && status < 500) {
+      return reply.code(status).send({ error: (error as Error).message });
     }
     request.log.error({ err: error }, 'admin request failed');
     // Never leak internals to the client; the detail is in the server log.

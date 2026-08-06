@@ -1,5 +1,15 @@
+import { createRequire } from 'node:module';
 import Fastify, { type FastifyInstance } from 'fastify';
 import type { Config } from './config.js';
+import { createMetrics } from './metrics.js';
+import { registerRateLimit } from './plugins/rateLimit.js';
+import { installHttpMetrics, metricsRoutes } from './routes/metrics.js';
+import { createReadinessProbe } from './services/readiness.js';
+import { instrumentedStorage } from './storage/instrumented.js';
+
+/** Reported by updraft_build_info, so a scrape identifies the running build. */
+const SERVER_VERSION: string = createRequire(import.meta.url)('../package.json').version;
+
 import { createDb, type Db, type DbHandle } from './db/client.js';
 import { MIGRATIONS_FOLDER } from './db/migrationsPath.js';
 import { adminRoutes } from './routes/admin.js';
@@ -41,6 +51,12 @@ export async function buildApp({
         : {}),
     },
     bodyLimit: 1024 * 1024,
+    // Unset means "do not trust", so request.ip stays the socket address.
+    // Trusting forwarded headers while directly exposed would let anyone
+    // spoof their way past the rate limiter.
+    ...(config.TRUST_PROXY === undefined
+      ? {}
+      : { trustProxy: parseTrustProxy(config.TRUST_PROXY) }),
   });
 
   let ownedDb: DbHandle | undefined;
@@ -75,14 +91,42 @@ export async function buildApp({
     app.log.info({ keyId: signer.keyId }, 'code signing enabled');
   }
 
+  const metrics = createMetrics({
+    version: SERVER_VERSION,
+    storageDriver: config.STORAGE_DRIVER,
+    assetDelivery: config.ASSETS_BASE_URL ? 'direct' : 'proxy',
+  });
+  const instrumented = instrumentedStorage(storage, metrics);
+  const readiness = createReadinessProbe({
+    db,
+    storage: instrumented,
+    metrics,
+    log: app.log,
+  });
+
   app.decorate('config', config);
 
-  await app.register(healthRoutes);
-  await app.register(manifestRoutes, { db, config, signer });
-  await app.register(assetRoutes, { db, storage });
-  await app.register(adminRoutes, { db, storage, config });
+  // Before any route is registered, so the limiter runs ahead of the admin
+  // scope's authentication hook rather than behind it.
+  await registerRateLimit(app, config);
+  installHttpMetrics(app, metrics);
+
+  await app.register(healthRoutes, { readiness });
+  await app.register(metricsRoutes, { config, metrics });
+  await app.register(manifestRoutes, { db, config, signer, metrics });
+  await app.register(assetRoutes, { db, storage: instrumented, metrics });
+  await app.register(adminRoutes, { db, storage: instrumented, config });
 
   return app;
+}
+
+/**
+ * Fastify accepts a boolean, a hop count, or a CSV of trusted addresses.
+ */
+function parseTrustProxy(value: string): boolean | number | string {
+  if (value === 'true') return true;
+  if (value === 'false') return false;
+  return /^\d+$/.test(value) ? Number(value) : value;
 }
 
 declare module 'fastify' {
