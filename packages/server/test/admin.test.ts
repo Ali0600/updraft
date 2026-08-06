@@ -241,6 +241,38 @@ describe('admin API — publishing', () => {
     expect(response.json().error).toMatch(/has not been uploaded/);
   });
 
+  it.each([
+    ['a CRLF injection attempt', 'text/plain\r\nX-Injected: yes'],
+    ['a value that is not a media type', 'not-a-media-type'],
+    ['an over-long value', `application/${'x'.repeat(300)}`],
+  ])('rejects %s as a published asset content type', async (_label, contentType) => {
+    // The publish payload's contentType is echoed as a response header, so it
+    // is validated the same way the upload header already is. The fixture is
+    // published first so the referenced asset genuinely exists — otherwise an
+    // "asset not uploaded" 400 would mask a missing contentType check, and the
+    // test would pass even with validation removed.
+    await publishFixture(harness.app);
+
+    const response = await harness.app.inject({
+      method: 'POST',
+      url: '/api/admin/updates',
+      headers: auth,
+      payload: {
+        appSlug: 'demo',
+        channelName: 'production',
+        platform: 'ios',
+        runtimeVersion: '1.0.0',
+        launchAsset: { sha256Hex: BUNDLE.sha256Hex, key: BUNDLE.key, contentType },
+        assets: [],
+      },
+    });
+
+    expect(response.statusCode).toBe(400);
+    // Names the offending field, so the 400 is provably the contentType check
+    // (length or shape) and not the "asset not uploaded" path.
+    expect(response.json().error).toMatch(/contentType/i);
+  });
+
   it('rejects an update for an unknown channel', async () => {
     await publishFixture(harness.app);
 
@@ -335,7 +367,10 @@ describe('admin API — publishing', () => {
     expect(response.statusCode).toBe(401);
   });
 
-  it('does not leak internals when a request body is malformed', async () => {
+  it('rejects a malformed body as a client error, not a server error', async () => {
+    // A bad slug is the client's mistake: 400, with a message about the field
+    // the client got wrong — never a 500 "internal server error", which would
+    // both misreport whose fault it is and read as a server bug.
     const response = await harness.app.inject({
       method: 'POST',
       url: '/api/admin/apps',
@@ -343,7 +378,9 @@ describe('admin API — publishing', () => {
       payload: { slug: 'Not A Valid Slug!', name: 'Demo' },
     });
 
-    expect(response.statusCode).toBe(500);
-    expect(response.json()).toEqual({ error: 'internal server error' });
+    expect(response.statusCode).toBe(400);
+    expect(response.json().error).toMatch(/slug/);
+    // The message describes the client's own input, not our internals.
+    expect(response.body).not.toMatch(/internal server error|stack|at Object|node:/i);
   });
 });

@@ -114,14 +114,22 @@ export async function storeAsset(
  */
 const MEDIA_TYPE = /^[a-z0-9][a-z0-9!#$&^_.+-]{0,62}\/[a-z0-9][a-z0-9!#$&^_.+-]{0,62}$/i;
 
+/**
+ * Whether a value's media-type portion is well-formed. Shared so the upload
+ * header and the publish payload validate a content type the same way — the
+ * publish payload's `contentType` is echoed as a response header too.
+ */
+export function isValidMediaType(value: string): boolean {
+  const [type] = value.split(';');
+  return MEDIA_TYPE.test(type?.trim() ?? '');
+}
+
 export function parseContentTypeHeader(value: string | undefined): string | undefined {
   if (value === undefined) return undefined;
-  const [type] = value.split(';');
-  const trimmed = type?.trim() ?? '';
-  if (!MEDIA_TYPE.test(trimmed)) {
+  if (!isValidMediaType(value)) {
     throw new PublishError(`'${value}' is not a valid media type`, 400);
   }
-  return trimmed.toLowerCase();
+  return (value.split(';')[0] ?? '').trim().toLowerCase();
 }
 
 export async function createUpdate(

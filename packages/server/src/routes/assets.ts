@@ -6,6 +6,19 @@ import { assets } from '../db/schema.js';
 import type { Metrics } from '../metrics.js';
 import { assetStorageKey, type BlobStorage } from '../storage/BlobStorage.js';
 
+/**
+ * Assets are arbitrary publisher-supplied bytes with a publisher-supplied
+ * content type, served from this origin. A browser must never render one as
+ * HTML or sniff it into a script, so every asset response carries both
+ * guards. The native expo-updates client fetches programmatically and ignores
+ * both, so this is invisible to real clients — it exists only to stop a
+ * `text/html` asset from becoming stored XSS on the server's own origin.
+ */
+const SAFE_DELIVERY_HEADERS = {
+  'x-content-type-options': 'nosniff',
+  'content-disposition': 'attachment',
+} as const;
+
 export interface AssetRoutesOptions {
   db: Db;
   storage: BlobStorage;
@@ -43,6 +56,7 @@ export async function assetRoutes(
           .header('content-type', row?.contentType ?? 'application/octet-stream')
           .header('content-length', String(stored.size))
           .header('cache-control', 'public, max-age=31536000, immutable')
+          .headers(SAFE_DELIVERY_HEADERS)
           .send();
       }
 
@@ -60,6 +74,7 @@ export async function assetRoutes(
           .header('content-type', row?.contentType ?? 'application/octet-stream')
           // The address is the content hash, so these bytes can never change.
           .header('cache-control', 'public, max-age=31536000, immutable')
+          .headers(SAFE_DELIVERY_HEADERS)
           .send(data)
       );
     },

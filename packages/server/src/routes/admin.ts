@@ -1,7 +1,7 @@
 import { PLATFORMS } from '@ota/core';
 import { and, desc, eq } from 'drizzle-orm';
 import type { FastifyInstance } from 'fastify';
-import { z } from 'zod';
+import { ZodError, z } from 'zod';
 import type { Config } from '../config.js';
 import type { Db } from '../db/client.js';
 import { apps, channels, updates } from '../db/schema.js';
@@ -10,6 +10,7 @@ import { rateLimitHook } from '../plugins/rateLimit.js';
 import {
   createApp,
   createUpdate,
+  isValidMediaType,
   missingAssetHashes,
   PublishError,
   parseContentTypeHeader,
@@ -37,7 +38,15 @@ const createAppSchema = z.object({
 const assetInputSchema = z.object({
   sha256Hex: z.string().regex(/^[a-f0-9]{64}$/),
   key: z.string().min(1),
-  contentType: z.string().min(1),
+  // Bounded and shape-checked: this value is served back as a response header,
+  // so an unbounded or malformed one is junk in a header. The response also
+  // carries nosniff + attachment, which is what actually stops a text/html
+  // asset from rendering — this only keeps the header well-formed.
+  contentType: z
+    .string()
+    .min(1)
+    .max(255)
+    .refine(isValidMediaType, 'contentType must be a valid media type'),
   fileExtension: z.string().optional(),
 });
 
@@ -99,6 +108,17 @@ export async function adminRoutes(
   app.setErrorHandler(async (error, request, reply) => {
     if (error instanceof PublishError) {
       return reply.code(error.statusCode).send({ error: error.message });
+    }
+    // A schema rejection is the client's fault, not ours: 400, never 500. The
+    // message describes the client's own malformed field, so it is safe to
+    // return and useful. Without this, any bad admin payload — including a
+    // rejected content type — surfaces as "internal server error".
+    if (error instanceof ZodError) {
+      const issue = error.issues[0];
+      const path = issue?.path.join('.');
+      return reply.code(400).send({
+        error: issue ? `${path ? `${path}: ` : ''}${issue.message}` : 'invalid request body',
+      });
     }
     // Errors that already carry a client-error status came from the framework
     // or a plugin — rate limiting, body limits, malformed requests — and their

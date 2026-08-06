@@ -3,6 +3,63 @@
 Design forks with real alternatives, recorded as they were decided. Rejected
 options are kept because the reasoning behind them is worth revisiting.
 
+## D16 — Verify the image before publishing it (2026-08-06)
+
+**Fork:** the release workflow built and pushed in one step, then ran a
+"does it serve" check *afterwards* — so a failed check could not unpublish an
+image that was already public at `:latest`.
+
+**Chosen:** build the runner's architecture with `--load` (no push), run the
+health check against that local image, and only then run a second build that
+pushes the real multi-arch tags. The amd64 layers are cached from the first
+build, so the second is cheap. A build that cannot boot never reaches the
+registry.
+
+Surfaced by the 2026-08-06 security audit (finding 1). The single-arch verify
+leg is a deliberate limit: `docker --load` cannot load a multi-arch manifest,
+so the boot check runs on amd64 only; arm64 is built only in the push leg.
+
+**Revisit hook:** `.github/workflows/docker.yml`.
+
+## D17 — Closing the asset-XSS vector (2026-08-06)
+
+**Fork:** a publisher-supplied `contentType` is served from this origin. The
+audit flagged that `text/html` is accepted, so an asset could render as HTML.
+
+| Option | Tradeoff |
+| --- | --- |
+| Validate contentType as a media type | Bounds length and rejects junk — but `text/html` **is** a valid media type, so it does not close the XSS |
+| `nosniff` + `content-disposition: attachment` on every asset response | Neuters any content type in a browser; invisible to the native client, which fetches programmatically |
+| Allowlist content types | Brittle; breaks on any new asset kind |
+
+**Chosen:** the response headers are the actual fix (they neuter `text/html`
+regardless of the stored value), *and* the payload contentType is validated
+for consistency and to bound its length. The report's original one-line
+suggestion — validate contentType — was necessary but **not sufficient**;
+recorded here so the distinction is not lost.
+
+Also fixed alongside: the admin error handler mapped a schema-validation
+failure (`ZodError`) to a 500, so any malformed admin body read as "internal
+server error". It is now a 400 with the offending field — a client error
+reported as one.
+
+**Revisit hook:** `SAFE_DELIVERY_HEADERS` in `routes/assets.ts`;
+`assetInputSchema` and the `ZodError` branch in `routes/admin.ts`.
+
+## D18 — Caching the manifest signature (2026-08-06)
+
+**Fork:** every unauthenticated request asking for `expo-expect-signature`
+forced an RSA operation on a deliberately unrate-limited path.
+
+**Chosen:** memoize the signature by body. The signed bytes are deterministic
+per update and RSASSA-PKCS1-v1_5 is itself deterministic, so the cached value
+is byte-identical — this is purely a CPU saving, not a behavior change. The
+cache is bounded (FIFO, 256) so update churn cannot leak. Because output is
+identical with or without it, the guarding test is on the pure memoizer's
+call count, not on any served signature.
+
+**Revisit hook:** `services/signatureCache.ts`, wired in `services/signer.ts`.
+
 ## D14 — Who may read /metrics (2026-08-06)
 
 **Fork:** metrics expose app slugs, publish counts and error rates, and this
