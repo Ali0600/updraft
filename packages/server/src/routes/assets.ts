@@ -26,12 +26,28 @@ export async function assetRoutes(
         return reply.code(400).send({ error: 'invalid asset hash' });
       }
 
-      const data = await storage.get(assetStorageKey(hash));
+      const key = assetStorageKey(hash);
+      const row = db.select().from(assets).where(eq(assets.sha256Hex, hash)).get();
+
+      // HEAD must not transfer the blob. Against object storage `get` would
+      // download the whole bundle to answer a request that has no body — on a
+      // public route with metered egress, that is amplification.
+      if (request.method === 'HEAD') {
+        const stored = await storage.stat(key);
+        if (!stored) {
+          return reply.code(404).send({ error: 'asset not found' });
+        }
+        return reply
+          .header('content-type', row?.contentType ?? 'application/octet-stream')
+          .header('content-length', String(stored.size))
+          .header('cache-control', 'public, max-age=31536000, immutable')
+          .send();
+      }
+
+      const data = await storage.get(key);
       if (!data) {
         return reply.code(404).send({ error: 'asset not found' });
       }
-
-      const row = db.select().from(assets).where(eq(assets.sha256Hex, hash)).get();
 
       return (
         reply

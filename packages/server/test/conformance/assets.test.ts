@@ -1,6 +1,7 @@
 import { sha256Hex } from '@ota/core';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import type { BlobStorage } from '../../src/storage/BlobStorage.js';
+import { createFakeStorage } from '../helpers/fakeStorage.js';
 import { publishFixture } from '../helpers/publishFixture.js';
 import { createTestApp, type TestHarness } from '../helpers/testApp.js';
 
@@ -10,11 +11,15 @@ function spyOn(storage: BlobStorage): { storage: BlobStorage; keys: string[] } {
   return {
     keys,
     storage: {
+      stat: (key) => {
+        keys.push(key);
+        return storage.stat(key);
+      },
       has: (key) => {
         keys.push(key);
         return storage.has(key);
       },
-      put: (key, data) => storage.put(key, data),
+      put: (key, data, options) => storage.put(key, data, options),
       get: (key) => {
         keys.push(key);
         return storage.get(key);
@@ -88,11 +93,7 @@ describe('asset endpoint — path safety', () => {
 
   for (const [label, hash] of rejected) {
     it(`rejects ${label} without touching storage`, async () => {
-      const spy = spyOn({
-        has: async () => false,
-        put: async () => undefined,
-        get: async () => undefined,
-      });
+      const spy = spyOn(createFakeStorage());
       const harness = await createTestApp({}, () => spy.storage);
 
       try {
@@ -108,6 +109,27 @@ describe('asset endpoint — path safety', () => {
       }
     });
   }
+
+  it('answers HEAD without transferring the blob', async () => {
+    // The header assertions above pass either way, because Fastify strips the
+    // body from a HEAD response regardless. Only the storage call log
+    // distinguishes "asked for metadata" from "downloaded a megabyte to throw
+    // it away" — which against object storage is billed egress on a public
+    // route.
+    const storage = createFakeStorage();
+    const hash = sha256Hex('head-probe');
+    await storage.put(`assets/${hash}`, Buffer.from('head-probe'));
+    const harness = await createTestApp({}, () => storage);
+
+    try {
+      const response = await harness.app.inject({ method: 'HEAD', url: `/assets/${hash}` });
+      expect(response.statusCode).toBe(200);
+      expect(storage.calls.stat).toContain(`assets/${hash}`);
+      expect(storage.calls.get).toEqual([]);
+    } finally {
+      await harness.close();
+    }
+  });
 
   it('refuses to resolve a key that escapes the storage root', async () => {
     const harness = await createTestApp();

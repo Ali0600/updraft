@@ -8,7 +8,7 @@ import { healthRoutes } from './routes/health.js';
 import { manifestRoutes } from './routes/manifest.js';
 import { createSigner } from './services/signer.js';
 import type { BlobStorage } from './storage/BlobStorage.js';
-import { LocalFsStorage } from './storage/localFs.js';
+import { createStorage } from './storage/createStorage.js';
 
 export interface BuildAppOptions {
   config: Config;
@@ -51,7 +51,22 @@ export async function buildApp({
     app.addHook('onClose', () => ownedDb?.close());
   }
 
-  const storage = injectedStorage ?? new LocalFsStorage(config.STORAGE_LOCAL_ROOT);
+  const storage = injectedStorage ?? createStorage(config);
+  if (!injectedStorage) {
+    app.log.info(
+      {
+        driver: config.STORAGE_DRIVER,
+        // Never the credentials; the bucket and endpoint are what an operator
+        // needs to confirm they are talking to the store they think they are.
+        ...(config.S3_BUCKET ? { bucket: config.S3_BUCKET } : {}),
+        ...(config.S3_ENDPOINT ? { endpoint: config.S3_ENDPOINT } : {}),
+      },
+      'storage configured',
+    );
+  }
+  if (config.STORAGE_DRIVER === 'local' && config.S3_BUCKET) {
+    app.log.warn('S3_* variables are set but STORAGE_DRIVER=local, so they are ignored');
+  }
 
   // Throws when a key is configured but unusable, so a broken key stops the
   // boot instead of silently serving unsigned updates.

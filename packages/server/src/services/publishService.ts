@@ -120,13 +120,18 @@ export async function createUpdate(
 
   // Every blob must be uploaded before the update goes live, or clients would
   // fetch a manifest pointing at bytes that do not exist.
+  // Sizes come from the store rather than from the publisher, so the recorded
+  // number describes the bytes actually being served.
+  const sizes = new Map<string, number>();
   for (const asset of allAssets) {
     if (!isSha256Hex(asset.sha256Hex)) {
       throw new PublishError(`'${asset.sha256Hex}' is not a SHA-256 hex digest`, 400);
     }
-    if (!(await storage.has(assetStorageKey(asset.sha256Hex)))) {
+    const stored = await storage.stat(assetStorageKey(asset.sha256Hex));
+    if (!stored) {
       throw new PublishError(`asset ${asset.sha256Hex} has not been uploaded`, 400);
     }
+    sizes.set(asset.sha256Hex, stored.size);
   }
 
   const now = new Date().toISOString();
@@ -135,7 +140,10 @@ export async function createUpdate(
   return db.transaction((tx) => {
     const assetIds = new Map<string, string>();
     for (const asset of allAssets) {
-      assetIds.set(assetKey(asset), upsertAsset(tx, asset, now).id);
+      assetIds.set(
+        assetKey(asset),
+        upsertAsset(tx, asset, now, sizes.get(asset.sha256Hex) ?? 0).id,
+      );
     }
 
     const launchAssetId = assetIds.get(assetKey(input.launchAsset));
@@ -172,7 +180,7 @@ export async function createUpdate(
 
 type Tx = Parameters<Parameters<Db['transaction']>[0]>[0];
 
-function upsertAsset(tx: Tx, input: AssetInput, now: string): AssetRow {
+function upsertAsset(tx: Tx, input: AssetInput, now: string, sizeBytes: number): AssetRow {
   const existing = tx
     .select()
     .from(assets)
@@ -187,8 +195,7 @@ function upsertAsset(tx: Tx, input: AssetInput, now: string): AssetRow {
     key: input.key,
     contentType: input.contentType,
     fileExtension: input.fileExtension ?? null,
-    // Size is recorded at upload time in M4's storage stats; 0 until then.
-    sizeBytes: 0,
+    sizeBytes,
     storageKey: assetStorageKey(input.sha256Hex),
     createdAt: now,
   };

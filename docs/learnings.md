@@ -186,6 +186,34 @@ and macOS will not tell you when it isn't. Prefer passing secrets through the
 environment where ownership is awkward, keep the restrictive mode, and document
 the uid requirement for the mount path.
 
+## "Not found" from a remote store may not mean what you assume
+
+The S3 driver's whole job is translating errors into the interface's
+`undefined` for "absent". The obvious predicate — HTTP 404 — is wrong, and only
+a real server showed why. Measured against MinIO:
+
+| call | missing key | missing bucket |
+| --- | --- | --- |
+| `GetObject` | `NoSuchKey` (404) | `NoSuchBucket` (404) |
+| `HeadObject` | `NotFound` (404) | `NotFound` (404) |
+
+A status check would have reported a **typo'd bucket name as an empty store**:
+every asset 404s, publishing appears to work, and the server looks healthy.
+Matching by error *name* fixes `GetObject`. `HeadObject` cannot be fixed at all
+— it answers with an empty body, so the two cases are byte-identical. That is a
+protocol limit, now pinned by a test and routed around (readiness reads rather
+than stats).
+
+**Why it came up:** the contract suite ran against real MinIO rather than a
+mock. A mock would have required *inventing* these error shapes — that is,
+encoding the assumption being tested.
+
+**Takeaway:** when a dependency reports failures as errors, enumerate the real
+error shapes against a real instance before writing the predicate that
+classifies them. Ask specifically which *distinct* failures collapse into the
+same response, because those are the ones your code cannot distinguish no
+matter how carefully it is written.
+
 ## A client integration is only proven by the client
 
 The server was verified against the specification, Expo's reference server, two

@@ -202,8 +202,8 @@ action            composite GitHub Action wrapping the publish flow
 
 - **Metadata** lives in SQLite (Drizzle ORM) — single-instance by design. The
   schema targets Postgres too if this ever needs to scale horizontally.
-- **Blobs** go through a pluggable `BlobStorage` interface; the local
-  filesystem driver ships first, S3-compatible storage in M4.
+- **Blobs** go through a pluggable `BlobStorage` interface: a local filesystem
+  driver and an S3-compatible one (AWS, MinIO, Cloudflare R2, Backblaze B2).
 - **Auth** on every admin route is a bearer token from the environment. The
   server refuses to start without one.
 
@@ -212,6 +212,29 @@ action            composite GitHub Action wrapping the publish flow
 Every variable is documented in [.env.example](.env.example). Configuration is
 validated at boot and the process exits on anything invalid, rather than
 starting in a half-configured state.
+
+### Object storage
+
+Set `STORAGE_DRIVER=s3` and `S3_BUCKET` to store blobs in any S3-compatible
+service. For anything other than AWS, set `S3_ENDPOINT` as well — path-style
+addressing switches on automatically when an endpoint is present, which is what
+MinIO and most self-hosted gateways require.
+
+```bash
+STORAGE_DRIVER=s3 S3_BUCKET=updraft-updates S3_ENDPOINT=http://minio:9000
+```
+
+Credentials come from the ambient AWS chain (IAM role or instance profile) when
+`S3_ACCESS_KEY_ID`/`S3_SECRET_ACCESS_KEY` are unset, which is the recommended
+production setup. Setting exactly one of the pair is a boot error: the chain
+would otherwise fall back to ambient credentials and write into whatever bucket
+those reach.
+
+The bucket policy needs `s3:GetObject` and `s3:PutObject` on the objects, plus
+**`s3:ListBucket` on the bucket**. Without `ListBucket`, S3 answers a missing
+object with `403` instead of `404`, which this server correctly treats as a
+failure rather than an absence — so the symptom is publishing that errors
+instead of deduplicating.
 
 ## Development
 
