@@ -37,3 +37,6 @@ example-app/dist/
 .idea/
 .vscode/*
 !.vscode/extensions.json
+
+# security audit reports — a findings list is a map of where to push; keep it local
+SECURITY-AUDIT-*.md
