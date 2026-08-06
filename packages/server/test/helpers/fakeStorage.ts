@@ -1,10 +1,22 @@
-import type { BlobStat, BlobStorage, PutOptions } from '../../src/storage/BlobStorage.js';
+import { Readable } from 'node:stream';
+import type {
+  BlobReadStream,
+  BlobStat,
+  BlobStorage,
+  PutOptions,
+} from '../../src/storage/BlobStorage.js';
 
 export interface FakeStorage extends BlobStorage {
   /** Every key written, so tests can assert what was stored. */
   readonly blobs: Map<string, { data: Buffer; contentType?: string | undefined }>;
   /** Keys passed to each method, so tests can assert what was *asked for*. */
-  readonly calls: { stat: string[]; has: string[]; put: string[]; get: string[] };
+  readonly calls: {
+    stat: string[];
+    has: string[];
+    put: string[];
+    get: string[];
+    getStream: string[];
+  };
 }
 
 export interface FakeStorageOptions {
@@ -23,6 +35,7 @@ export function createFakeStorage(options: FakeStorageOptions = {}): FakeStorage
     has: [] as string[],
     put: [] as string[],
     get: [] as string[],
+    getStream: [] as string[],
   };
 
   const storage: FakeStorage = {
@@ -51,6 +64,17 @@ export function createFakeStorage(options: FakeStorageOptions = {}): FakeStorage
       calls.get.push(key);
       if (options.failReads) throw options.failReads;
       return blobs.get(key)?.data;
+    },
+    async getStream(key: string): Promise<BlobReadStream | undefined> {
+      calls.getStream.push(key);
+      if (options.failReads) throw options.failReads;
+      const blob = blobs.get(key);
+      if (!blob) return undefined;
+      return {
+        stream: Readable.from(blob.data),
+        size: blob.data.length,
+        ...(blob.contentType ? { contentType: blob.contentType } : {}),
+      };
     },
   };
 

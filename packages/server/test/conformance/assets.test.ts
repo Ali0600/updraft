@@ -24,6 +24,10 @@ function spyOn(storage: BlobStorage): { storage: BlobStorage; keys: string[] } {
         keys.push(key);
         return storage.get(key);
       },
+      getStream: (key) => {
+        keys.push(key);
+        return storage.getStream(key);
+      },
     },
   };
 }
@@ -139,6 +143,28 @@ describe('asset endpoint — path safety', () => {
       const response = await harness.app.inject({ method: 'HEAD', url: `/assets/${hash}` });
       expect(response.statusCode).toBe(200);
       expect(storage.calls.stat).toContain(`assets/${hash}`);
+      expect(storage.calls.get).toEqual([]);
+    } finally {
+      await harness.close();
+    }
+  });
+
+  it('serves GET by streaming, never by buffering the whole blob', async () => {
+    // The response bytes are identical whether streamed or buffered, so only
+    // the storage call log can prove the difference. This route is
+    // unauthenticated and unbounded, so buffering a multi-megabyte bundle per
+    // concurrent request is a memory-exhaustion vector — the guard is that GET
+    // reads via getStream, not get.
+    const storage = createFakeStorage();
+    const hash = sha256Hex('stream-probe');
+    await storage.put(`assets/${hash}`, Buffer.from('stream-probe'));
+    const harness = await createTestApp({}, () => storage);
+
+    try {
+      const response = await harness.app.inject({ method: 'GET', url: `/assets/${hash}` });
+      expect(response.statusCode).toBe(200);
+      expect(response.rawPayload.equals(Buffer.from('stream-probe'))).toBe(true);
+      expect(storage.calls.getStream).toContain(`assets/${hash}`);
       expect(storage.calls.get).toEqual([]);
     } finally {
       await harness.close();

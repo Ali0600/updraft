@@ -60,22 +60,27 @@ export async function assetRoutes(
           .send();
       }
 
-      const data = await storage.get(key);
-      if (!data) {
+      // Streamed, never buffered: this route is unauthenticated and unbounded,
+      // so materialising a multi-megabyte bundle per concurrent request is a
+      // memory-exhaustion vector. Fastify pipes the stream and destroys it on
+      // client abort.
+      const blob = await storage.getStream(key);
+      if (!blob) {
         return reply.code(404).send({ error: 'asset not found' });
       }
 
       // Payload bytes, not wire bytes — the number that says whether the
       // proxy path is carrying enough traffic to justify a CDN.
-      metrics?.assetBytesSent.inc(data.length);
+      metrics?.assetBytesSent.inc(blob.size);
 
       return (
         reply
           .header('content-type', row?.contentType ?? 'application/octet-stream')
+          .header('content-length', String(blob.size))
           // The address is the content hash, so these bytes can never change.
           .header('cache-control', 'public, max-age=31536000, immutable')
           .headers(SAFE_DELIVERY_HEADERS)
-          .send(data)
+          .send(blob.stream)
       );
     },
   });

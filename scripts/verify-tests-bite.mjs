@@ -93,6 +93,20 @@ const SABOTAGES = [
     replace: 'url: `/${assetStorageKey(asset.sha256Hex)}`,',
   },
   {
+    label: 'assets: buffer the whole blob instead of streaming it',
+    file: S('routes/assets.ts'),
+    // Output is identical either way; the calls-spy test (getStream, not get)
+    // is what catches this memory-exhaustion regression.
+    find: '      const blob = await storage.getStream(key);',
+    replace: '      const blob = await storage.get(key);',
+  },
+  {
+    label: 'localFs: stream a blob with the wrong size',
+    file: S('storage/localFs.ts'),
+    find: '    return { stream: createReadStream(path), size };',
+    replace: '    return { stream: createReadStream(path), size: 999 };',
+  },
+  {
     label: 'metrics: serve the scrape without a token',
     file: S('routes/metrics.ts'),
     find: "  app.addHook('onRequest', requireBearerToken(config.PUBLISH_TOKEN));",
