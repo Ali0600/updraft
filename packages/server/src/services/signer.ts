@@ -2,6 +2,7 @@ import { createPrivateKey } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import { SIGNATURE_ALGORITHM, serializeSignatureHeader, signBytes } from '@ota/core';
 import type { Config } from '../config.js';
+import { createMemoizer } from './signatureCache.js';
 
 export interface Signer {
   /** The keyid clients must name in `expo-expect-signature`. */
@@ -45,14 +46,21 @@ export function createSigner(config: Config): Signer | undefined {
   }
 
   const keyPem = key.export({ type: 'pkcs8', format: 'pem' }).toString();
+  const keyid = config.CODE_SIGNING_KEY_ID;
+
+  const signString = createMemoizer((body: string) =>
+    serializeSignatureHeader({ sig: signBytes(body, keyPem), keyid }),
+  );
 
   return {
-    keyId: config.CODE_SIGNING_KEY_ID,
+    keyId: keyid,
+    // The route always signs a string body, which the memoizer serves without
+    // repeating the RSA operation. A Buffer input is off the hot path and is
+    // signed directly, so its exact behavior is unchanged.
     sign: (bytes) =>
-      serializeSignatureHeader({
-        sig: signBytes(bytes, keyPem),
-        keyid: config.CODE_SIGNING_KEY_ID,
-      }),
+      typeof bytes === 'string'
+        ? signString(bytes)
+        : serializeSignatureHeader({ sig: signBytes(bytes, keyPem), keyid }),
   };
 }
 

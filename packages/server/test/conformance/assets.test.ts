@@ -53,6 +53,20 @@ describe('asset endpoint', () => {
     expect(response.headers['content-type']).toContain('application/javascript');
   });
 
+  it('serves every asset with browser-neutering headers', async () => {
+    // A publisher-supplied content type is served from this origin. Both
+    // guards must be present so a `text/html` asset cannot render or be
+    // sniffed into a script on the server's own origin — checked on GET and
+    // HEAD, since both return the same headers.
+    const { bundle } = await publishFixture(harness.app);
+
+    for (const method of ['GET', 'HEAD'] as const) {
+      const response = await harness.app.inject({ method, url: `/assets/${bundle.sha256Hex}` });
+      expect(response.headers['x-content-type-options'], method).toBe('nosniff');
+      expect(response.headers['content-disposition'], method).toBe('attachment');
+    }
+  });
+
   it('answers HEAD with the size the body would have', async () => {
     const { bundle } = await publishFixture(harness.app);
 

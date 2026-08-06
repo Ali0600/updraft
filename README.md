@@ -334,6 +334,12 @@ publish uploads nothing. Requires `npm install` in `example-app/` first.
 - Diagnosed a container-only runtime failure caused by a native module's
   prebuilt binary requiring a newer glibc than the base image provided,
   reducing image size 28% by eliminating an unnecessary source build.
+- Conducted a first-principles security audit of the codebase and the CI/CD
+  pipeline, then hardened the findings: verify-before-publish in the release
+  workflow so a build that cannot boot never reaches the registry, response
+  headers that stop served assets executing as HTML on the origin, and a
+  bounded signature cache that removes an unauthenticated CPU-amplification
+  path.
 - Implemented RSA code signing end to end — key generation, certificate
   issuance, request-scoped signing, and fail-closed key validation at boot —
   verifying signatures against an independent cryptographic implementation to

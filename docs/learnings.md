@@ -219,6 +219,40 @@ carry a client-error status — they come from the framework or a plugin and
 their messages are safe. Reserve the generic 500 for genuinely unexpected
 failures, or you will hide the very guards you added.
 
+## A valid media type is not a safe one — neuter the response, don't just validate
+
+The audit's suggested fix for "an asset can be served as `text/html` and run as
+stored XSS on our origin" was to validate the content type. But `text/html`
+*is* a syntactically valid media type — validation rejects junk and bounds
+length, and lets the XSS straight through. The vector is closed at the
+**response** instead: `X-Content-Type-Options: nosniff` and
+`Content-Disposition: attachment` stop any browser rendering or sniffing the
+bytes, whatever the declared type. Both are invisible to the native client,
+which fetches programmatically.
+
+**Why it came up:** "validate the input" is the reflex, and here it addresses a
+different problem (well-formedness) than the one that matters (rendering).
+
+**Takeaway:** when untrusted bytes are served from your origin, the question is
+not "is the content type well-formed" but "can a browser be made to execute
+this here". Answer it at the response with `nosniff` + `attachment` (or a
+sandboxing CSP); treat input validation as hygiene, not the mitigation.
+
+## A catch-all error handler must not relabel client errors as server errors
+
+Adding content-type validation surfaced that the admin error handler mapped
+every non-application error — including a `ZodError` from schema validation —
+to a 500 "internal server error". So a malformed request body (the client's
+fault) was reported as a server bug, and the new validation "worked" while
+returning the wrong status. A schema rejection is now a 400 naming the bad
+field.
+
+**Takeaway:** a generic handler that funnels everything to 500 hides the
+distinction between "you sent something invalid" and "we broke". Map validation
+failures to 4xx explicitly; the reserved 500 is only for genuinely unexpected
+faults. (Pairs with the M4 finding where the same handler flattened a
+rate-limit 429 into a 500.)
+
 ## "Not found" from a remote store may not mean what you assume
 
 The S3 driver's whole job is translating errors into the interface's

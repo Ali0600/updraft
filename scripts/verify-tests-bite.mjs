@@ -172,9 +172,38 @@ const SABOTAGES = [
     label: 'upload: accept any string as a media type',
     file: S('services/publishService.ts'),
     // In direct mode a CDN echoes this value, so an unvalidated one is header
-    // injection into a response we do not control.
-    find: '  if (!MEDIA_TYPE.test(trimmed)) {',
-    replace: '  if (false) {',
+    // injection into a response we do not control. Re-anchored: the check
+    // moved into the shared isValidMediaType predicate.
+    find: "  return MEDIA_TYPE.test(type?.trim() ?? '');",
+    replace: '  return true;',
+  },
+  {
+    label: 'publish: accept any string as an asset content type',
+    file: S('routes/admin.ts'),
+    // The publish payload's contentType is echoed as a response header too.
+    find: "    .refine(isValidMediaType, 'contentType must be a valid media type'),",
+    replace: "    .refine(() => true, 'contentType must be a valid media type'),",
+  },
+  {
+    label: 'assets: serve without the nosniff/attachment guards',
+    file: S('routes/assets.ts'),
+    // These are what stop a text/html asset rendering on our origin.
+    find: "  'x-content-type-options': 'nosniff',",
+    replace: '',
+  },
+  {
+    label: 'signer: sign every request instead of caching',
+    file: S('services/signatureCache.ts'),
+    // Output is byte-identical cached or not; the memoizer test is the only
+    // thing that can catch this unauthenticated-CPU-amplification fix.
+    find: '    if (cached !== undefined) return cached;',
+    replace: '    if (false) return cached;',
+  },
+  {
+    label: 'admin errors: report a malformed body as a 500',
+    file: S('routes/admin.ts'),
+    find: '    if (error instanceof ZodError) {',
+    replace: '    if (false && error instanceof ZodError) {',
   },
   {
     label: 'delivery: ignore ASSETS_BASE_URL and keep addressing ourselves',
