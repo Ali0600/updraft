@@ -123,8 +123,54 @@ const SABOTAGES = [
   {
     label: 'publish: allow an update to reference an un-uploaded asset',
     file: S('services/publishService.ts'),
-    find: '    if (!(await storage.has(assetStorageKey(asset.sha256Hex)))) {',
-    replace: '    if (!(await storage.has(assetStorageKey(asset.sha256Hex))) && false) {',
+    // Re-anchored in M4: the presence check moved from has() to stat(), so it
+    // could also record the stored size.
+    find: '    if (!stored) {',
+    replace: '    if (!stored && false) {',
+  },
+  {
+    label: 'publish: record a fabricated asset size instead of the stored one',
+    file: S('services/publishService.ts'),
+    find: '    sizes.set(asset.sha256Hex, stored.size);',
+    replace: '    sizes.set(asset.sha256Hex, 999);',
+  },
+  {
+    label: 's3: report any failure as a missing object',
+    file: S('storage/s3.ts'),
+    // The invariant the whole driver exists for: a credentials or bucket
+    // failure must never read as "this key is absent".
+    find: "  return name === 'NoSuchKey' || name === 'NotFound';",
+    replace: '  return true;',
+  },
+  {
+    label: 's3: address buckets by virtual host against a path-style endpoint',
+    file: S('storage/createStorage.ts'),
+    find: '      forcePathStyle: config.S3_FORCE_PATH_STYLE ?? Boolean(config.S3_ENDPOINT),',
+    replace: '      forcePathStyle: false,',
+  },
+  {
+    label: 's3: store every object as octet-stream',
+    file: S('storage/s3.ts'),
+    find: "        ContentType: options?.contentType ?? 'application/octet-stream',",
+    replace: "        ContentType: 'application/octet-stream',",
+  },
+  {
+    label: 'config: accept STORAGE_DRIVER=s3 with no bucket',
+    file: S('config.ts'),
+    find: "    .refine((config) => config.STORAGE_DRIVER !== 's3' || Boolean(config.S3_BUCKET), {",
+    replace: '    .refine(() => true, {',
+  },
+  {
+    label: 'config: accept half an S3 credential pair',
+    file: S('config.ts'),
+    find: '.refine((config) => Boolean(config.S3_ACCESS_KEY_ID) === Boolean(config.S3_SECRET_ACCESS_KEY), {',
+    replace: '.refine(() => true, {',
+  },
+  {
+    label: 'assets: download the whole blob to answer HEAD',
+    file: S('routes/assets.ts'),
+    find: "      if (request.method === 'HEAD') {",
+    replace: '      if (false) {',
   },
   {
     label: 'localFs: drop the storage-root containment check',

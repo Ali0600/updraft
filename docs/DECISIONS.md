@@ -3,6 +3,57 @@
 Design forks with real alternatives, recorded as they were decided. Rejected
 options are kept because the reasoning behind them is worth revisiting.
 
+## D11 — S3 driver: SDK or hand-rolled SigV4 (2026-08-05)
+
+**Fork:** M4 needs an S3-compatible storage driver. The API surface actually
+used is tiny — GET, PUT, HEAD on one bucket.
+
+| Option | Tradeoff |
+| --- | --- |
+| `@aws-sdk/client-s3` | ~26 packages and a larger image, but absorbs SigV4, retries, checksum negotiation, and per-provider quirks |
+| Hand-rolled SigV4 over `fetch` | Zero dependencies and about 150 lines, genuinely tempting for three verbs |
+| A lightweight third-party client | Fewer deps than the SDK, but a smaller maintenance base for a security-critical signer |
+
+**Chosen:** the official SDK. A request signer is a security-critical wheel,
+and the parts that look trivial are exactly the parts that differ between AWS,
+MinIO, R2 and B2 — checksum headers, path-style addressing, error naming. The
+measured cost was 26 packages, well below the ~80 feared when planning.
+
+**Status of rejected options:** hand-rolled SigV4 — `rejected — security-critical
+and provider-specific`. Lightweight client — `deferred — worth trying` if image
+size ever matters.
+
+**Revisit hook:** `packages/server/src/storage/s3.ts` implements a four-method
+interface; swapping the client underneath touches nothing else.
+
+## D12 — What "absent" means to a storage driver (2026-08-05)
+
+**Fork:** `BlobStorage.get`/`stat` resolve `undefined` for a missing key. S3
+signals many conditions as errors, and the driver must decide which of them
+mean "not there".
+
+| Option | Tradeoff |
+| --- | --- |
+| Any error → undefined | Simplest, and catastrophic: bad credentials or a typo'd bucket become an empty store that looks healthy |
+| HTTP 404 → undefined | Reads correct, and is wrong — a **missing bucket also returns 404** |
+| Specific error names → undefined | Narrowest, and the only one that distinguishes the cases |
+
+**Chosen:** match `NoSuchKey` and `NotFound` by name; everything else
+propagates. Measured against real MinIO, `GetObject` on a missing *bucket*
+returns `NoSuchBucket` with status 404 — so the status-based version would have
+reported a misconfigured bucket as an empty one. `403 AccessDenied` is
+deliberately excluded too: S3 returns it instead of 404 for a missing object
+when the caller lacks `s3:ListBucket`, and swallowing it would hide a
+permissions mistake.
+
+**Known limitation, pinned by a test:** `HeadObject` answers with an empty body,
+so a missing bucket and a missing key are byte-identical (`NotFound`, 404).
+`stat` therefore cannot detect a wrong bucket name. `get` can, which is why the
+M4 readiness probe will read rather than stat.
+
+**Revisit hook:** `isNotFound` in `packages/server/src/storage/s3.ts`, with the
+measured error table in the comment above it.
+
 ## D10 — Publishing plumbing that needs a remote (2026-08-05)
 
 **Fork:** M3 planned npm publishing (changesets + a release workflow), a GHCR

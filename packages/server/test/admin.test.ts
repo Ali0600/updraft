@@ -1,5 +1,6 @@
 import { sha256Hex } from '@ota/core';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { assets } from '../src/db/schema.js';
 import {
   auth,
   BUNDLE,
@@ -207,6 +208,18 @@ describe('admin API — publishing', () => {
     });
 
     expect(response.statusCode).toBe(404);
+  });
+
+  it('records each asset size from the stored bytes, not from the publisher', async () => {
+    // The size is read back from storage during publish, so the recorded
+    // number describes the bytes actually being served. A publisher cannot
+    // assert a size, and nothing may invent one.
+    await publishFixture(harness.app);
+
+    const rows = harness.db.select().from(assets).all();
+    const bundle = rows.find((row) => row.sha256Hex === BUNDLE.sha256Hex);
+    expect(bundle?.sizeBytes).toBe(BUNDLE.bytes.length);
+    expect(rows.every((row) => row.sizeBytes > 0)).toBe(true);
   });
 
   it('lists updates newest first with their group ids', async () => {

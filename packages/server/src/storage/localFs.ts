@@ -1,7 +1,7 @@
 import { randomBytes } from 'node:crypto';
-import { mkdir, readFile, rename, writeFile } from 'node:fs/promises';
+import { mkdir, readFile, rename, stat, writeFile } from 'node:fs/promises';
 import { dirname, join, resolve, sep } from 'node:path';
-import type { BlobStorage } from './BlobStorage.js';
+import type { BlobStat, BlobStorage } from './BlobStorage.js';
 
 export class LocalFsStorage implements BlobStorage {
   private readonly root: string;
@@ -10,8 +10,20 @@ export class LocalFsStorage implements BlobStorage {
     this.root = resolve(root);
   }
 
+  async stat(key: string): Promise<BlobStat | undefined> {
+    try {
+      const stats = await stat(this.resolveKey(key));
+      // The filesystem stores no content type. Callers fall back to the
+      // `assets` row, which is where it lives for this driver.
+      return { size: stats.size };
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === 'ENOENT') return undefined;
+      throw error;
+    }
+  }
+
   async has(key: string): Promise<boolean> {
-    return (await this.read(key)) !== undefined;
+    return (await this.stat(key)) !== undefined;
   }
 
   async put(key: string, data: Buffer): Promise<void> {
