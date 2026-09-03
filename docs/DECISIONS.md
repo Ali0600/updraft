@@ -3,6 +3,20 @@
 Design forks with real alternatives, recorded as they were decided. Rejected
 options are kept because the reasoning behind them is worth revisiting.
 
+## Backlog — alternatives worth trying later
+
+- **Native-Swift asset/config OTA** — a genuinely different product; would let
+  non-React-Native apps update remote config and assets. (See D1.)
+- **Postgres metadata store** — needed the day this has to run more than one
+  instance. Drizzle already targets it. (See D5.)
+- **Bundling runtime dependencies into a single artifact** — smaller, simpler
+  runtime image, blocked by pino/fastify worker-thread resolution. (See D7.)
+- **npm package publishing** — blocked on an npm account and a final package
+  name (`updraft` is taken there; `updraft-ota`/`updraft-cli` are free). GHCR
+  is done. (See D10.)
+
+---
+
 ## D19 — Stream asset responses instead of buffering them (2026-08-06)
 
 **Fork:** the asset route read the whole blob into a Buffer before sending. On
@@ -261,20 +275,6 @@ One implementation note worth keeping: `docker/metadata-action`'s
 `type=semver,pattern={{version}}` strips the leading `v`, so the tag `v0.1.0`
 publishes the image as `0.1.0`. Pulling `v0.1.0` returns "not found", which
 looks exactly like a private-package permissions error and is not one.
-
-## Backlog — alternatives worth trying later
-
-- **Native-Swift asset/config OTA** — a genuinely different product; would let
-  non-React-Native apps update remote config and assets. (See D1.)
-- **Postgres metadata store** — needed the day this has to run more than one
-  instance. Drizzle already targets it. (See D5.)
-- **Bundling runtime dependencies into a single artifact** — smaller, simpler
-  runtime image, blocked by pino/fastify worker-thread resolution. (See D7.)
-- **npm package publishing** — blocked on an npm account and a final package
-  name (`updraft` is taken there; `updraft-ota`/`updraft-cli` are free). GHCR
-  is done. (See D10.)
-
----
 
 ## D8 — Project name (2026-08-05)
 

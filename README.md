@@ -28,14 +28,7 @@ delivery. All planned milestones are complete.
 
 Not yet exercised: Android, and physical devices (which need HTTPS).
 
-| Milestone | Scope | State |
-| --- | --- | --- |
-| M0 | Scaffold, Docker, CI | done |
-| M1 | Protocol MVP (manifest + assets + publish API) | done |
-| M2 | Code signing, channels, rollback | done |
-| M3 | Publishing CLI + GitHub Action | done |
-| M5 | Verified against a real `expo-updates` client | done |
-| M4 | S3 storage, CDN delivery, metrics, readiness, rate limits | done |
+Milestone history: [docs/MILESTONES.md](docs/MILESTONES.md).
 
 ## Quickstart
 
@@ -317,61 +310,50 @@ publish uploads nothing. Requires `npm install` in `example-app/` first.
 ## Experience Gained
 
 - Implemented a published wire protocol (Expo Updates v1) from its
-  specification, including content-addressed asset delivery, `multipart/mixed`
-  response envelopes, and RSA code signing over exact payload bytes.
-- Designed a pluggable storage abstraction and a content-addressed,
-  deduplicating blob store backed by SQLite metadata.
-- Built a multi-stage Docker image running as an unprivileged user, with a
-  dependency-free container healthcheck verified to fail as well as pass.
-- Automated lint, typecheck, test, and build across a Node version matrix in
-  GitHub Actions, with SHA-pinned third-party actions and least-privilege
-  workflow permissions.
-- Applied fail-closed configuration validation and bearer-token authentication
-  from the first endpoint, with path-traversal-safe asset addressing.
-- Built a mutation-testing harness that verifies each security and protocol
-  guard is genuinely covered, checksumming sources across every break/restore
-  cycle and validating the test count to detect runs that silently skip files.
-- Diagnosed a container-only runtime failure caused by a native module's
-  prebuilt binary requiring a newer glibc than the base image provided,
-  reducing image size 28% by eliminating an unnecessary source build.
-- Conducted a first-principles security audit of the codebase and the CI/CD
-  pipeline, then hardened the findings: verify-before-publish in the release
-  workflow so a build that cannot boot never reaches the registry, response
-  headers that stop served assets executing as HTML on the origin, and a
-  bounded signature cache that removes an unauthenticated CPU-amplification
-  path.
-- Implemented RSA code signing end to end — key generation, certificate
-  issuance, request-scoped signing, and fail-closed key validation at boot —
-  verifying signatures against an independent cryptographic implementation to
-  prove interoperability rather than self-consistency.
-- Designed reversible release operations (rollback to embedded, republish,
-  disable) as append-only state transitions, preserving an audit trail and
-  making every operation individually undoable.
-- Built a publishing CLI that ingests Metro build output and uploads only the
-  blobs a server lacks, cutting repeat publishes of multi-megabyte bundles to
-  zero bytes transferred through content-addressed deduplication.
-- Authored a composite GitHub Action for release automation, keeping
-  credentials out of workflow logs by routing them through environment
-  variables rather than action inputs, and validating every step locally
-  against a live server.
-- Validated a protocol implementation against the real third-party client on
-  iOS, capturing live traffic through a logging proxy to confirm header
-  formats and signature placement that no specification or test suite could
-  settle.
-- Demonstrated that code signing genuinely rejects tampered releases by
-  serving an update signed with a mismatched key and confirming the device
-  refused it — testing the negative case, not only the happy path.
-- Built a pluggable object-storage layer for S3, MinIO, R2 and B2, tested
-  against a real MinIO in CI rather than a mock — which caught a fault where a
-  mistyped bucket name would have surfaced as an empty store on an
-  apparently healthy server.
-- Instrumented the service with Prometheus metrics under a deliberate
-  cardinality budget, treating labels derived from request input as a
-  memory-exhaustion vector rather than a style question.
-- Designed liveness and readiness probes around their failure modes: liveness
-  stays dependency-free so outages cannot trigger restart loops, and the
-  unauthenticated readiness probe is cached and single-flighted so it cannot
-  be used to amplify load against paid backing services.
+  specification - content-addressed asset delivery, `multipart/mixed`
+  response envelopes, RSA code signing over exact payload bytes - and
+  validated it against the real `expo-updates` client on iOS, capturing live
+  traffic through a logging proxy to settle header formats and signature
+  placement that no specification or test suite could.
+- Implemented RSA code signing end to end (key generation, certificate
+  issuance, request-scoped signing, fail-closed key validation at boot),
+  verified against an independent cryptographic implementation to prove
+  interoperability rather than self-consistency, and proved the negative
+  case by serving an update signed with a mismatched key and confirming the
+  device refused it.
+- Designed a pluggable, content-addressed, deduplicating blob store - local
+  disk or any S3-compatible object store (S3, MinIO, R2, B2) with optional
+  CDN delivery - tested against a real MinIO in CI rather than a mock, which
+  caught a mistyped bucket name surfacing as an empty store on an apparently
+  healthy server; the publishing CLI uploads only the blobs a server lacks,
+  cutting repeat publishes of multi-megabyte bundles to zero bytes
+  transferred.
+- Automated lint, typecheck, test and build across a Node version matrix in
+  GitHub Actions with SHA-pinned actions and least-privilege permissions,
+  verify-before-publish in the release workflow so an image that cannot boot
+  never reaches the registry, and a composite Action for release automation
+  that keeps credentials out of workflow logs by routing them through
+  environment variables rather than action inputs.
+- Built a multi-stage Docker image running as an unprivileged user with a
+  dependency-free healthcheck verified to fail as well as pass, and
+  diagnosed a container-only failure caused by a native module's prebuilt
+  binary requiring a newer glibc than the base image - reducing image size
+  28% by eliminating an unnecessary source build.
+- Applied fail-closed configuration validation, bearer-token authentication
+  and path-traversal-safe asset addressing from the first endpoint; built a
+  mutation-testing harness that checksums sources across every break/restore
+  cycle and validates the test count so a run that silently skips files
+  cannot pass; and conducted a first-principles security audit of the code
+  and CI/CD pipeline, hardening the findings (asset responses that cannot
+  execute as HTML on the origin, a bounded signature cache closing an
+  unauthenticated CPU-amplification path).
+- Instrumented the service for operations: Prometheus metrics under a
+  deliberate cardinality budget (labels derived from request input treated
+  as a memory-exhaustion vector), a dependency-free liveness probe so
+  outages cannot trigger restart loops, an unauthenticated readiness probe
+  cached and single-flighted so it cannot amplify load on paid backing
+  services, and reversible release operations (rollback, republish, disable)
+  as append-only state transitions with an audit trail.
 
 ## Prior art
 
