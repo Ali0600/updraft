@@ -2,29 +2,29 @@
 
 [![CI](https://github.com/Ali0600/updraft/actions/workflows/ci.yml/badge.svg)](https://github.com/Ali0600/updraft/actions/workflows/ci.yml)
 
-A self-hosted, open-source update server for React Native / Expo apps — an
-alternative to the hosted EAS Update service, implementing the published
-[Expo Updates protocol v1](https://docs.expo.dev/technical-specs/expo-updates-1/).
+A self-hosted, open-source update server for React Native and Expo apps. It is
+an alternative to the hosted EAS Update service, and it implements the
+published [Expo Updates protocol v1](https://docs.expo.dev/technical-specs/expo-updates-1/).
 
-The on-device client (`expo-updates`) is already open source and can point at
-any conforming server. This project is the **server and publishing tooling**:
-your bucket, your CDN, your data.
+The on-device client (`expo-updates`) is already open source, and you can point
+it at any server that follows the protocol. This project is the **server and
+the publishing tools**: your bucket, your CDN, your data.
 
-> **Scope note.** Over-the-air updates cover interpreted code only — the
-> JavaScript bundle and its assets. Compiled native code can never be updated
-> this way, and doing so would violate the Apple Developer Program agreement.
+> **Scope note.** Over-the-air (OTA) updates cover interpreted code only — the
+> JavaScript bundle and its assets. You can never update compiled native code
+> this way, and doing so would break the Apple Developer Program agreement.
 > A change to native modules or app config still needs a store release.
 
 ## Status
 
 Working end to end. Updates publish from the CLI, apply on a real device, and
-roll back — verified against `expo-updates` 57.0.12 on the iOS simulator, with
-code signing enforced. See [docs/protocol-notes.md](docs/protocol-notes.md)
-for what the real client confirmed and [docs/e2e-testing.md](docs/e2e-testing.md)
-for how to reproduce it.
+roll back. That was verified against `expo-updates` 57.0.12 on the iOS
+simulator, with code signing switched on. See
+[docs/protocol-notes.md](docs/protocol-notes.md) for what the real client
+confirmed, and [docs/e2e-testing.md](docs/e2e-testing.md) for how to repeat it.
 
 Blobs can live on disk or in any S3-compatible store, with optional CDN
-delivery. All planned milestones are complete.
+delivery. All planned milestones are done.
 
 Not yet exercised: Android, and physical devices (which need HTTPS).
 
@@ -32,7 +32,7 @@ Milestone history: [docs/MILESTONES.md](docs/MILESTONES.md).
 
 ## Quickstart
 
-Requires Node >= 22.13 (pnpm 11's own floor), pnpm, and Docker.
+You need Node >= 22.13 (pnpm 11's own floor), pnpm, and Docker.
 
 ```bash
 git clone https://github.com/Ali0600/updraft.git && cd updraft
@@ -43,7 +43,8 @@ pnpm install
 pnpm test
 ```
 
-Or skip the build and run the published image (linux/amd64 and linux/arm64):
+Or skip the build and run the published image, which covers linux/amd64 and
+linux/arm64:
 
 ```bash
 docker run -p 3000:3000 -e PUBLIC_URL=http://localhost:3000 -e PUBLISH_TOKEN=$(openssl rand -hex 32) ghcr.io/ali0600/updraft:0.1.0
@@ -81,12 +82,12 @@ npx expo export
 node packages/cli/dist/index.js publish --dir dist --server http://localhost:3000 --app my-app --channel production --runtime-version 1.0.0
 ```
 
-The token comes from the environment only, never a flag — flags land in shell
-history and CI logs.
+The token comes from the environment only, never from a flag. Flags end up in
+shell history and CI logs.
 
-Publishing is content-addressed: the CLI asks the server which blobs it already
-has and uploads only the rest, so republishing an unchanged export transfers
-nothing and iOS and Android share every common asset.
+Publishing is content-addressed. The CLI asks the server which blobs it already
+has and uploads only the rest. So republishing an unchanged export transfers
+nothing, and iOS and Android share every asset they have in common.
 
 | Command | Purpose |
 | --- | --- |
@@ -99,8 +100,8 @@ nothing and iOS and Android share every common asset.
 
 ### From CI
 
-[`action/action.yml`](action/action.yml) is a composite GitHub Action wrapping
-the same steps:
+[`action/action.yml`](action/action.yml) is a composite GitHub Action that
+wraps the same steps:
 
 ```yaml
 - uses: ./action
@@ -113,11 +114,10 @@ the same steps:
     runtime-version: '1.0.0'
 ```
 
-The token is an `env:` value rather than an input because action inputs are
-echoed into workflow logs. Its steps are verified by
-`scripts/verify-action-steps.sh`, which runs each `run:` block locally against a
-real server — the action cannot execute here, and unverified YAML is not a
-feature.
+The token is an `env:` value rather than an input, because action inputs are
+echoed into workflow logs. `scripts/verify-action-steps.sh` checks its steps by
+running each `run:` block locally against a real server — the action itself
+cannot run here, and YAML nobody has tested is not a feature.
 
 ## API
 
@@ -127,9 +127,9 @@ feature.
 curl -i http://localhost:3000/api/manifest/demo -H 'expo-protocol-version: 1' -H 'expo-platform: ios' -H 'expo-runtime-version: 1.0.0' -H 'accept: multipart/mixed'
 ```
 
-Returns a `multipart/mixed` manifest, a rollback directive, or `204` when there
-is nothing to apply. Assets are served from `/assets/:sha256` with immutable
-caching. Details and the full resolution order are in
+It returns a `multipart/mixed` manifest, a rollback directive, or `204` when
+there is nothing to apply. Assets are served from `/assets/:sha256` and can be
+cached forever. The details and the full resolution order are in
 [docs/protocol-notes.md](docs/protocol-notes.md).
 
 **Admin API** (bearer token required on every route):
@@ -145,45 +145,47 @@ caching. Details and the full resolution order are in
 | `POST /api/admin/updates/:groupId/disable` | take a publish out of service |
 
 Uploads are content-addressed and deduplicated, so republishing only transfers
-what actually changed. Every lifecycle operation appends a new row rather than
-mutating history, so each one is itself reversible and leaves an audit trail.
+what really changed. Every lifecycle operation adds a new row instead of
+rewriting history. That makes each one reversible and leaves an audit trail.
 
 ## Code signing
 
-Devices can require that an update was signed by your key before applying it.
+A device can require that an update was signed by your key before it applies it.
 
 ```bash
 node packages/cli/dist/index.js keys generate --output ./certs
 ```
 
-Give the server the private key and embed `certs/certificate.pem` in the app via
-`updates.codeSigningCertificate`, with
+Give the server the private key. Embed `certs/certificate.pem` in the app
+through `updates.codeSigningCertificate`, with
 `codeSigningMetadata: { keyid: "main", alg: "rsa-v1_5-sha256" }`. The
 `keys generate` output prints the exact config snippet.
 
 The key reaches the server one of two ways:
 
-- `CODE_SIGNING_PRIVATE_KEY_BASE64` — the key inline. Works everywhere and is
-  the simplest option on hosts that only offer environment variables.
+- `CODE_SIGNING_PRIVATE_KEY_BASE64` — the key inline. It works everywhere and
+  is the simplest option on hosts that only offer environment variables.
 - `CODE_SIGNING_PRIVATE_KEY_PATH` — a read-only bind mount. **The container
   runs as uid 1000 (`node`), and `keys generate` writes the key mode 0600 owned
-  by whoever ran it.** On Linux the container then cannot read it and the
-  server refuses to start (by design — see below). Either `chown 1000:1000` the
-  key or use the base64 form. Docker Desktop on macOS maps ownership so this
-  surfaces only on Linux, which is exactly where you deploy.
+  by whoever ran it.** On Linux the container then cannot read it, so the
+  server refuses to start. That is by design — see below. Either
+  `chown 1000:1000` the key or use the base64 form. Docker Desktop on macOS
+  remaps ownership, so this only shows up on Linux, which is exactly where you
+  deploy.
 
-Setting both is a configuration error rather than a silent precedence rule.
+Setting both is a configuration error. There is no quiet rule about which one
+wins.
 
-Signing is opt-in per request: clients ask with `expo-expect-signature`. When
-one does, anything that would prevent a correct signature — no key configured,
-an unknown `keyid`, an unsupported algorithm — is a `400`, never an unsigned
-`200`, since serving unsigned to a client that asked for a signature is exactly
-the downgrade this prevents. A key that is configured but unreadable stops the
-server at boot for the same reason.
+Signing is opt-in per request: a client asks for it with
+`expo-expect-signature`. When one does, anything that would stop a correct
+signature — no key configured, an unknown `keyid`, an unsupported algorithm —
+returns `400`, never an unsigned `200`. Serving an unsigned update to a client
+that asked for a signature is exactly the downgrade this prevents. A key that
+is configured but unreadable stops the server at boot, for the same reason.
 
-The certificate ships inside the app binary, so **rotating the key requires an
-app-store release** — certificates are generated with a 10-year validity, and
-`keys generate` refuses to overwrite existing keys.
+The certificate ships inside the app binary, so **rotating the key needs an
+app-store release**. Certificates are generated with a 10-year validity, and
+`keys generate` refuses to overwrite keys that already exist.
 
 ## Architecture
 
@@ -195,8 +197,8 @@ example-app       a real Expo app used to produce genuine Metro exports
 action            composite GitHub Action wrapping the publish flow
 ```
 
-- **Metadata** lives in SQLite (Drizzle ORM) — single-instance by design. The
-  schema targets Postgres too if this ever needs to scale horizontally.
+- **Metadata** lives in SQLite (Drizzle ORM), on a single instance by design.
+  The schema works on Postgres too, if this ever needs to scale out.
 - **Blobs** go through a pluggable `BlobStorage` interface: a local filesystem
   driver and an S3-compatible one (AWS, MinIO, Cloudflare R2, Backblaze B2).
 - **Auth** on every admin route is a bearer token from the environment. The
@@ -204,73 +206,73 @@ action            composite GitHub Action wrapping the publish flow
 
 ## Configuration
 
-Every variable is documented in [.env.example](.env.example). Configuration is
-validated at boot and the process exits on anything invalid, rather than
-starting in a half-configured state.
+Every variable is documented in [.env.example](.env.example). The config is
+checked at boot and the process exits on anything invalid, rather than starting
+half-configured.
 
 ### Object storage
 
-Set `STORAGE_DRIVER=s3` and `S3_BUCKET` to store blobs in any S3-compatible
-service. For anything other than AWS, set `S3_ENDPOINT` as well — path-style
-addressing switches on automatically when an endpoint is present, which is what
-MinIO and most self-hosted gateways require.
+Set `STORAGE_DRIVER=s3` and `S3_BUCKET` to keep blobs in any S3-compatible
+service. For anything other than AWS, set `S3_ENDPOINT` as well. Path-style
+addressing turns on automatically when an endpoint is present, which is what
+MinIO and most self-hosted gateways need.
 
 ```bash
 STORAGE_DRIVER=s3 S3_BUCKET=updraft-updates S3_ENDPOINT=http://minio:9000
 ```
 
-Credentials come from the ambient AWS chain (IAM role or instance profile) when
-`S3_ACCESS_KEY_ID`/`S3_SECRET_ACCESS_KEY` are unset, which is the recommended
-production setup. Setting exactly one of the pair is a boot error: the chain
-would otherwise fall back to ambient credentials and write into whatever bucket
-those reach.
+Leave `S3_ACCESS_KEY_ID`/`S3_SECRET_ACCESS_KEY` unset and credentials come from
+the ambient AWS chain (an IAM role or instance profile), which is the
+recommended production setup. Setting exactly one of the pair is a boot error:
+otherwise the chain falls back to ambient credentials and writes into whatever
+bucket those reach.
 
 The bucket policy needs `s3:GetObject` and `s3:PutObject` on the objects, plus
 **`s3:ListBucket` on the bucket**. Without `ListBucket`, S3 answers a missing
-object with `403` instead of `404`, which this server correctly treats as a
-failure rather than an absence — so the symptom is publishing that errors
+object with `403` instead of `404`. This server correctly reads that as a
+failure rather than an absence, so the symptom is publishing that errors
 instead of deduplicating.
 
 ### Serving assets from a CDN
 
-By default the server proxies every asset download. Set `ASSETS_BASE_URL` to
-have new manifests address assets at a CDN or the bucket directly:
+By default the server proxies every asset download. Set `ASSETS_BASE_URL` and
+new manifests point assets at a CDN, or straight at the bucket:
 
 ```bash
 ASSETS_BASE_URL=https://cdn.example.com
 ```
 
-The URL path is the object's storage key, so `assets/<sha256>` must resolve at
-that origin — point the CDN at the same bucket the server writes to. Assets are
-content-addressed and immutable, which is what makes them safe to cache
+The URL path is the object's storage key, so `assets/<sha256>` has to resolve
+at that origin — point the CDN at the same bucket the server writes to. Assets
+are content-addressed and never change, which is what makes them safe to cache
 forever.
 
 The server keeps serving assets itself even when this is set. Devices already
-hold manifests addressed to `PUBLIC_URL`, and disabling the proxy would break
-every update currently downloading.
+hold manifests addressed to `PUBLIC_URL`, and turning the proxy off would break
+every update that is currently downloading.
 
 ## Operations
 
-`/healthz` reports that the process is alive and never touches a dependency —
-it backs the container `HEALTHCHECK`, and restarting cannot fix an unreachable
-database or bucket. `/readyz` probes both and answers 503 when either is
-down, which is what a load balancer should watch.
+`/healthz` reports that the process is alive and never touches a dependency. It
+backs the container `HEALTHCHECK`, and a restart cannot fix an unreachable
+database or bucket. `/readyz` probes both and answers 503 when either is down,
+which is the one a load balancer should watch.
 
-`/metrics` serves Prometheus text **behind the publish token**, because
-operational data should not be world-readable on an internet-facing server:
+`/metrics` serves Prometheus text **behind the publish token**. Operational
+data should not be readable by the whole internet on a public server:
 
 ```bash
 curl -H "Authorization: Bearer $UPDRAFT_PUBLISH_TOKEN" http://localhost:3000/metrics
 ```
 
-Label sets are deliberately bounded. App slugs, channels, runtime versions and
-client addresses are never used as labels — several come straight from request
-input, and a label taken from request input lets anyone create unbounded time
-series until the process runs out of memory.
+Label sets are kept deliberately small. App slugs, channels, runtime versions
+and client addresses are never used as labels. Several of them come straight
+from request input, and a label built from request input lets anyone create
+endless time series until the process runs out of memory.
 
-Admin and metrics routes are rate limited (600/minute by default). The device
+Admin and metrics routes are rate limited, 600/minute by default. The device
 paths are not: a release wave has every client checking in at once, and
-answering that with 429s would be a self-inflicted outage.
+answering that with 429s would be an outage you caused yourself.
 
 Full deployment guide, including TLS, bucket policies and backups:
 [docs/deployment.md](docs/deployment.md).
@@ -293,67 +295,40 @@ pnpm test:bite   # mutation check: breaks each guard, fails if tests stay green
 ./scripts/e2e-real-export.sh
 ```
 
-`test:bite` breaks one guard at a time and asserts the suite notices — a test
-that has never failed proves nothing.
+`test:bite` breaks one guard at a time and checks that the suite notices. A
+test that has never failed proves nothing.
 
 `e2e-docker.sh` publishes a small checked-in fixture through the real CLI and
-container, so it stays fast and offline while covering what in-process tests
-structurally cannot: the built bundle, migrations running from `dist/`, and the
-native SQLite module actually loading.
+container. It stays fast and offline, and it covers what in-process tests
+structurally cannot reach: the built bundle, migrations running from `dist/`,
+and the native SQLite module actually loading.
 
-`e2e-real-export.sh` runs `npx expo export` on `example-app/` and publishes
-that — genuine 1.4 MB Hermes bundles for both platforms and a real
-content-addressed asset. It asserts the manifest matches the export byte for
-byte, that asset keys equal Metro's own MD5 filenames, and that a repeat
-publish uploads nothing. Requires `npm install` in `example-app/` first.
+`e2e-real-export.sh` runs `npx expo export` on `example-app/` and publishes the
+result: genuine 1.4 MB Hermes bundles for both platforms and a real
+content-addressed asset. It checks that the manifest matches the export byte
+for byte, that asset keys equal Metro's own MD5 filenames, and that a repeat
+publish uploads nothing. Run `npm install` in `example-app/` first.
 
 ## Experience Gained
 
-- Implemented a published wire protocol (Expo Updates v1) from its
-  specification - content-addressed asset delivery, `multipart/mixed`
-  response envelopes, RSA code signing over exact payload bytes - and
-  validated it against the real `expo-updates` client on iOS, capturing live
-  traffic through a logging proxy to settle header formats and signature
-  placement that no specification or test suite could.
-- Implemented RSA code signing end to end (key generation, certificate
-  issuance, request-scoped signing, fail-closed key validation at boot),
-  verified against an independent cryptographic implementation to prove
-  interoperability rather than self-consistency, and proved the negative
-  case by serving an update signed with a mismatched key and confirming the
-  device refused it.
-- Designed a pluggable, content-addressed, deduplicating blob store - local
-  disk or any S3-compatible object store (S3, MinIO, R2, B2) with optional
-  CDN delivery - tested against a real MinIO in CI rather than a mock, which
-  caught a mistyped bucket name surfacing as an empty store on an apparently
-  healthy server; the publishing CLI uploads only the blobs a server lacks,
-  cutting repeat publishes of multi-megabyte bundles to zero bytes
-  transferred.
-- Automated lint, typecheck, test and build across a Node version matrix in
-  GitHub Actions with SHA-pinned actions and least-privilege permissions,
-  verify-before-publish in the release workflow so an image that cannot boot
-  never reaches the registry, and a composite Action for release automation
-  that keeps credentials out of workflow logs by routing them through
-  environment variables rather than action inputs.
-- Built a multi-stage Docker image running as an unprivileged user with a
-  dependency-free healthcheck verified to fail as well as pass, and
-  diagnosed a container-only failure caused by a native module's prebuilt
-  binary requiring a newer glibc than the base image - reducing image size
-  28% by eliminating an unnecessary source build.
-- Applied fail-closed configuration validation, bearer-token authentication
-  and path-traversal-safe asset addressing from the first endpoint; built a
-  mutation-testing harness that checksums sources across every break/restore
-  cycle and validates the test count so a run that silently skips files
-  cannot pass; and conducted a first-principles security audit of the code
-  and CI/CD pipeline, hardening the findings (asset responses that cannot
-  execute as HTML on the origin, a bounded signature cache closing an
-  unauthenticated CPU-amplification path).
-- Instrumented the service for operations: Prometheus metrics under a
-  deliberate cardinality budget (labels derived from request input treated
-  as a memory-exhaustion vector), a dependency-free liveness probe so
-  outages cannot trigger restart loops, an unauthenticated readiness probe
-  cached and single-flighted so it cannot amplify load on paid backing
-  services, and reversible release operations (rollback, republish, disable)
-  as append-only state transitions with an audit trail.
+- Implemented the Expo Updates v1 protocol from its spec — content-addressed assets,
+  `multipart/mixed` envelopes, RSA signing — proved against the real `expo-updates` 57.0.12
+  client, capturing its live traffic through a logging proxy to settle header formats and
+  signature placement that no specification documents.
+- Built RSA code signing end to end, with 10-year certificates and fail-closed key checks at
+  boot, checked against an independent cryptographic implementation to prove interoperability
+  rather than self-consistency, then proved the negative case: a device refuses an update
+  signed with the wrong key.
+- Designed a deduplicating blob store over local disk or 4 S3-compatible services (S3, MinIO, R2,
+  B2), tested against a real MinIO in CI, cutting repeat publishes to 0 bytes transferred.
+- Automated 4 CI gates (lint, typecheck, test, build) over a Node version matrix, with SHA-pinned
+  actions, least-privilege permissions, and verify-before-publish on every release.
+- Built a multi-stage Docker image that runs as an unprivileged user, cutting size 28% and fixing
+  a container-only crash from a prebuilt binary needing newer glibc than the base image.
+- Hardened the service from the first endpoint: fail-closed config, bearer auth, traversal-safe
+  asset paths, a checksummed mutation harness, and 2 fixes from a first-principles audit.
+- Instrumented operations with a bounded Prometheus label budget, dependency-free liveness and
+  cached readiness probes, and 3 reversible release actions on append-only state.
 
 ## Prior art
 
